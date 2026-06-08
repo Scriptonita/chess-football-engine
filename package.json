@@ -6,7 +6,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Scriptonita/chess-football-engine"
+    "url": "git+https://github.com/Scriptonita/chess-football-engine.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
   "sideEffects": false,
   "files": [
@@ -26,7 +29,8 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "tsup": "^8.5.0",
