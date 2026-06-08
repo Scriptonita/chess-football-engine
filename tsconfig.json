@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "declaration": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUncheckedIndexedAccess": false,
+    "noEmit": true
+  },
+  "//": "typecheck targets shipped source; tests are validated by vitest (esbuild), mirroring the source repo. Ported test files keep the upstream patterns to avoid rule drift.",
+  "include": ["src"]
+}
