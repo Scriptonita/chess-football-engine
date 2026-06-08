@@ -9,7 +9,7 @@
     "url": "git+https://github.com/Scriptonita/chess-football-engine.git"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "sideEffects": false,
   "files": [
