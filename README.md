@@ -1,3 +1,7 @@
+<p align="center">
+  <img alt="Chess.Football" src="./assets/cover.png" />
+</p>
+
 # @scriptonita/chess-football-engine
 
 Canonical **code** implementation of the Chess.Football rules engine — pure and framework-agnostic (no DOM, no Node APIs, no state-management library).
@@ -5,7 +9,7 @@ Canonical **code** implementation of the Chess.Football rules engine — pure an
 > **Rules source of truth:** the human-readable spec lives at
 > [github.com/Scriptonita/chess.football](https://github.com/Scriptonita/chess.football).
 > This package implements that spec in code and is consumed by every game client
-> (the web app Chess.Football and the -next- CrazyGames build). When the spec changes,
+> (the web app [Chess.Football](https://chess.football) and the -next- CrazyGames build). When the spec changes,
 > update it here once, publish a new version, and bump the dependency in both games.
 
 ## Install
