@@ -20,7 +20,7 @@ export interface Ball {
     holderId: string | null // Piece ID
 }
 
-export type MoveHistoryType = 'move' | 'pass' | 'tackle' | 'goal' | 'interception'
+export type MoveHistoryType = 'move' | 'pass' | 'tackle' | 'goal' | 'interception' | 'offside'
 
 export interface MoveHistoryEntry {
     type: MoveHistoryType

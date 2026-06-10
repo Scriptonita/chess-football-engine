@@ -1,4 +1,5 @@
 import { BoardState, Piece, Ball, Position, Side, MoveHistoryEntry, MoveHistoryType } from './types/game'
+import { isInEnemyArea } from './game-logic'
 
 // ─────────────────────────────────────────────────────────
 // Internal helpers
@@ -91,6 +92,51 @@ function nextSide(side: Side): Side {
 
 function resetPieceFlags(pieces: Piece[]): Piece[] {
     return pieces.map(p => ({ ...p, hasMovedThisTurn: false }))
+}
+
+type OffsideResult = {
+    ball: Ball
+    /** The offending piece's id, or null if no offside occurred. */
+    offsidePieceId: string | null
+    /** History/notification entry to record, or null. */
+    entry: MoveHistoryEntry | null
+}
+
+/**
+ * Offside rule: a side may not END its turn with one of its non-king pieces holding
+ * the ball inside the ENEMY area (the rival keeper can't be tackled there, so this
+ * would let a player camp the ball indefinitely). When it happens, the piece is
+ * "offside" and the ball is handed to the rival king.
+ *
+ * Runs at every turn-end, AFTER the king-release flags, on the resolved ball.
+ */
+function applyOffsideAtTurnEnd(departingSide: Side, pieces: Piece[], ball: Ball, turnNumber: number): OffsideResult {
+    if (!ball.holderId) return { ball, offsidePieceId: null, entry: null }
+
+    const holder = pieces.find(p => p.id === ball.holderId)
+    if (!holder || holder.type === 'king' || holder.side !== departingSide) {
+        return { ball, offsidePieceId: null, entry: null }
+    }
+    if (!isInEnemyArea(holder.pos, departingSide)) {
+        return { ball, offsidePieceId: null, entry: null }
+    }
+
+    const rivalKing = pieces.find(p => p.type === 'king' && p.side === nextSide(departingSide))
+    if (!rivalKing) return { ball, offsidePieceId: null, entry: null }
+
+    return {
+        ball: { pos: { ...rivalKing.pos }, holderId: rivalKing.id },
+        offsidePieceId: holder.id,
+        entry: {
+            type: 'offside',
+            pieceType: holder.type,
+            pieceSide: holder.side,
+            from: { ...holder.pos },
+            to: { ...rivalKing.pos },
+            at: Date.now(),
+            turnNumber,
+        },
+    }
 }
 
 const HISTORY_LIMIT = 60
@@ -207,25 +253,28 @@ export function applyMove(boardState: BoardState, pieceId: string, to: Position)
         turnNumber,
     }
 
+    const offside = isTurnOver
+        ? applyOffsideAtTurnEnd(boardState.turn, newPieces, kingFlags.ball, turnNumber)
+        : { ball: kingFlags.ball, offsidePieceId: null, entry: null }
+
+    let moveHistory = appendHistory(boardState.moveHistory, historyEntry)
+    if (offside.entry) moveHistory = appendHistory(moveHistory, offside.entry)
+
     return {
         moveType,
         boardState: {
             ...boardState,
             pieces: isTurnOver ? resetPieceFlags(newPieces) : newPieces,
-            ball: kingFlags.ball,
+            ball: offside.ball,
             actionPoints: isTurnOver ? (boardState.maxActionPoints ?? 5) : nextAP,
             turn: nextTurn,
             turnNumber: isTurnOver ? turnNumber + 1 : turnNumber,
             kingMustRelease: kingFlags.kingMustRelease,
             keeperBlockedId: kingFlags.keeperBlockedId,
-            lastMove: {
-                type: moveType,
-                from: piece.pos,
-                to,
-                playerId: piece.id,
-                at: now,
-            },
-            moveHistory: appendHistory(boardState.moveHistory, historyEntry),
+            lastMove: offside.entry
+                ? { type: 'offside', from: offside.entry.from, to: offside.entry.to, playerId: offside.offsidePieceId!, at: offside.entry.at }
+                : { type: moveType, from: piece.pos, to, playerId: piece.id, at: now },
+            moveHistory,
         },
     }
 }
@@ -326,12 +375,19 @@ export function applyPass(boardState: BoardState, to: Position): PassResult {
         turnNumber,
     }
 
+    const offside = isTurnOver
+        ? applyOffsideAtTurnEnd(boardState.turn, boardState.pieces, kingFlags.ball, turnNumber)
+        : { ball: kingFlags.ball, offsidePieceId: null, entry: null }
+
+    let moveHistory = appendHistory(boardState.moveHistory, historyEntry)
+    if (offside.entry) moveHistory = appendHistory(moveHistory, offside.entry)
+
     return {
         forcedTurnEnd,
         goalScored,
         boardState: {
             ...boardState,
-            ball: kingFlags.ball,
+            ball: offside.ball,
             actionPoints: isTurnOver ? (boardState.maxActionPoints ?? 5) : nextAP,
             turn: nextTurn,
             turnNumber: isTurnOver ? turnNumber + 1 : turnNumber,
@@ -340,14 +396,10 @@ export function applyPass(boardState: BoardState, to: Position): PassResult {
                 : boardState.pieces,
             kingMustRelease: kingFlags.kingMustRelease,
             keeperBlockedId: kingFlags.keeperBlockedId,
-            lastMove: {
-                type: lastMoveType,
-                from: holder.pos,
-                to: ball.pos,
-                playerId: holder.id,
-                at: now,
-            },
-            moveHistory: appendHistory(boardState.moveHistory, historyEntry),
+            lastMove: offside.entry
+                ? { type: 'offside', from: offside.entry.from, to: offside.entry.to, playerId: offside.offsidePieceId!, at: offside.entry.at }
+                : { type: lastMoveType, from: holder.pos, to: ball.pos, playerId: holder.id, at: now },
+            moveHistory,
         },
     }
 }
@@ -368,14 +420,19 @@ export function applyEndTurn(boardState: BoardState): BoardState {
         boardState.ball,
     )
     const turnNumber = boardState.turnNumber ?? 1
+    const offside = applyOffsideAtTurnEnd(boardState.turn, boardState.pieces, kingFlags.ball, turnNumber)
     return {
         ...boardState,
         turn: nextSide(boardState.turn),
         actionPoints: boardState.maxActionPoints ?? 5,
         turnNumber: turnNumber + 1,
         pieces: resetPieceFlags(boardState.pieces),
-        ball: kingFlags.ball,
+        ball: offside.ball,
         kingMustRelease: kingFlags.kingMustRelease,
         keeperBlockedId: kingFlags.keeperBlockedId,
+        lastMove: offside.entry
+            ? { type: 'offside', from: offside.entry.from, to: offside.entry.to, playerId: offside.offsidePieceId!, at: offside.entry.at }
+            : boardState.lastMove,
+        moveHistory: offside.entry ? appendHistory(boardState.moveHistory, offside.entry) : boardState.moveHistory,
     }
 }

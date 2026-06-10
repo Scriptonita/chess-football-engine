@@ -1,6 +1,6 @@
 {
   "name": "@scriptonita/chess-football-engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Canonical code implementation of the Chess.Football rules engine. Pure and framework-agnostic.",
   "type": "module",
   "license": "MIT",
