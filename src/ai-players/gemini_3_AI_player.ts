@@ -20,423 +20,440 @@ interface AIPlayerScript {
 // Funciones auxiliares internas (Puras)
 // ============================================
 
-function isInArea(x: number, y: number, side: Side): boolean {
-  if (side === 'white') {
-    return x >= 2 && x <= 6 && y >= 0 && y <= 1
-  } else {
-    return x >= 2 && x <= 6 && y >= 10 && y <= 11
-  }
+function cloneState(state: BoardState): BoardState {
+  return JSON.parse(JSON.stringify(state));
 }
 
-function getValidMoves(piece: Piece, boardState: BoardState, aiSide: Side): Position[] {
-  const moves: Position[] = []
-  
-  const dirs8 = [
-    { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
-    { x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }
-  ]
-  const dirs4Orth = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }]
-  const dirs4Diag = [{ x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }]
-  const knightOffsets = [
-    { x: 2, y: 1 }, { x: 2, y: -1 }, { x: -2, y: 1 }, { x: -2, y: -1 },
-    { x: 1, y: 2 }, { x: 1, y: -2 }, { x: -1, y: 2 }, { x: -1, y: -2 }
-  ]
-
-  if (piece.type === 'king') {
-    for (const d of dirs8) {
-      const cx = piece.pos.x + d.x
-      const cy = piece.pos.y + d.y
-      if (cx >= 0 && cx <= 8 && cy >= 0 && cy <= 11) {
-        if (isInArea(cx, cy, piece.side)) {
-          const pAt = boardState.pieces.find(p => p.pos.x === cx && p.pos.y === cy)
-          if (!pAt) {
-            moves.push({ x: cx, y: cy })
-          } else if (pAt.side !== piece.side && pAt.type !== 'king' && boardState.ball.holderId === pAt.id) {
-            moves.push({ x: cx, y: cy })
-          }
-        }
-      }
-    }
-  } else if (piece.type === 'knight') {
-    for (const o of knightOffsets) {
-      const cx = piece.pos.x + o.x
-      const cy = piece.pos.y + o.y
-      if (cx >= 0 && cx <= 8 && cy >= 0 && cy <= 11) {
-        if (!isInArea(cx, cy, piece.side)) {
-          const pAt = boardState.pieces.find(p => p.pos.x === cx && p.pos.y === cy)
-          if (!pAt) {
-            moves.push({ x: cx, y: cy })
-          } else if (pAt.side !== piece.side && pAt.type !== 'king' && boardState.ball.holderId === pAt.id) {
-            moves.push({ x: cx, y: cy })
-          }
-        }
-      }
-    }
-  } else {
-    const dirs = piece.type === 'rook' ? dirs4Orth : (piece.type === 'bishop' ? dirs4Diag : dirs8)
-    for (const d of dirs) {
-      let cx = piece.pos.x + d.x
-      let cy = piece.pos.y + d.y
-      let iter = 0
-      while (cx >= 0 && cx <= 8 && cy >= 0 && cy <= 11 && iter < 12) {
-        iter++
-        if (isInArea(cx, cy, piece.side)) {
-          break
-        }
-        const pAt = boardState.pieces.find(p => p.pos.x === cx && p.pos.y === cy)
-        if (pAt) {
-          if (pAt.side === piece.side) {
-            break
-          } else {
-            if (pAt.type === 'king') {
-              break
-            }
-            if (boardState.ball.holderId === pAt.id) {
-              moves.push({ x: cx, y: cy })
-            }
-            break
-          }
-        }
-        moves.push({ x: cx, y: cy })
-        cx += d.x
-        cy += d.y
-      }
-    }
-  }
-  return moves
-}
-
-function getValidPasses(piece: Piece, boardState: BoardState): Position[] {
-  const targets: Position[] = []
-  const myKing = boardState.pieces.find(p => p.type === 'king' && p.side === piece.side)
-  const isKeeperBlocked = myKing && boardState.keeperBlockedId === myKing.id
-
-  if (piece.type === 'knight') {
-    const knightOffsets = [
-      { x: 2, y: 1 }, { x: 2, y: -1 }, { x: -2, y: 1 }, { x: -2, y: -1 },
-      { x: 1, y: 2 }, { x: 1, y: -2 }, { x: -1, y: 2 }, { x: -1, y: -2 }
-    ]
-    for (const o of knightOffsets) {
-      const cx = piece.pos.x + o.x
-      const cy = piece.pos.y + o.y
-      if (cx >= 0 && cx <= 8 && cy >= 0 && cy <= 11) {
-        if (isKeeperBlocked && myKing && cx === myKing.pos.x && cy === myKing.pos.y) {
-          continue
-        }
-        targets.push({ x: cx, y: cy })
-      }
-    }
-  } else {
-    const dirs8 = [
-      { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
-      { x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }
-    ]
-    const dirs4Orth = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }]
-    const dirs4Diag = [{ x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }]
-    
-    const dirs = piece.type === 'rook' ? dirs4Orth : (piece.type === 'bishop' ? dirs4Diag : dirs8)
-    for (const d of dirs) {
-      let cx = piece.pos.x + d.x
-      let cy = piece.pos.y + d.y
-      let iter = 0
-      while (cx >= 0 && cx <= 8 && cy >= 0 && cy <= 11 && iter < 12) {
-        iter++
-        if (isKeeperBlocked && myKing && cx === myKing.pos.x && cy === myKing.pos.y) {
-          cx += d.x
-          cy += d.y
-          continue
-        }
-        targets.push({ x: cx, y: cy })
-        cx += d.x
-        cy += d.y
-      }
-    }
-  }
-  return targets
-}
-
-function isPassSafe(from: Position, to: Position, boardState: BoardState, aiSide: Side): boolean {
-  const holder = boardState.pieces.find(p => p.id === boardState.ball.holderId)
-  if (!holder) return false
-  
-  if (holder.type === 'knight') {
-    const atDest = boardState.pieces.find(p => p.pos.x === to.x && p.pos.y === to.y)
-    if (atDest && atDest.side !== aiSide && atDest.type !== 'king') return false
-    return true
-  }
-
-  const dx = Math.sign(to.x - from.x)
-  const dy = Math.sign(to.y - from.y)
-  if (dx === 0 && dy === 0) return false
-
-  let cx = from.x + dx
-  let cy = from.y + dy
-  let iter = 0
-
-  while ((cx !== to.x || cy !== to.y) && iter < 12) {
-    iter++
-    const pieceInPath = boardState.pieces.find(p => p.pos.x === cx && p.pos.y === cy)
-    if (pieceInPath) {
-      if (pieceInPath.side !== aiSide) {
-        return pieceInPath.type === 'king'
-      }
-      return false
-    }
-    cx += dx
-    cy += dy
-  }
-
-  const atDest = boardState.pieces.find(p => p.pos.x === to.x && p.pos.y === to.y)
-  if (atDest && atDest.side !== aiSide && atDest.type !== 'king') return false
-
-  return true
-}
-
-function isBallDestinationSafe(to: Position, boardState: BoardState, aiSide: Side): boolean {
-  const opponentSide: Side = aiSide === 'white' ? 'black' : 'white'
-  const teammateAtDest = boardState.pieces.find(p => p.pos.x === to.x && p.pos.y === to.y && p.side === aiSide)
-  
-  const simulatedBall = { pos: to, holderId: teammateAtDest ? teammateAtDest.id : null }
-  const simulatedState = { ...boardState, ball: simulatedBall }
-
-  const opponentPieces = boardState.pieces.filter(p => p.side === opponentSide && p.type !== 'king')
-  for (const opp of opponentPieces) {
-    const oppMoves = getValidMoves(opp, simulatedState, opp.side)
-    if (oppMoves.some(m => m.x === to.x && m.y === to.y)) {
-      return false
-    }
-  }
-  return true
+function isInsideArea(pos: Position, side: Side): boolean {
+  const yMin = side === 'white' ? 0 : 10;
+  const yMax = side === 'white' ? 1 : 11;
+  return pos.x >= 2 && pos.x <= 6 && pos.y >= yMin && pos.y <= yMax;
 }
 
 function isOnLineBetween(from: Position, to: Position, check: Position): boolean {
-  const dx = Math.sign(to.x - from.x)
-  const dy = Math.sign(to.y - from.y)
-  if (dx === 0 && dy === 0) return false
-
-  let cx = from.x + dx
-  let cy = from.y + dy
-  let iter = 0
-  while ((cx !== to.x || cy !== to.y) && iter < 12) {
-    iter++
-    if (cx === check.x && cy === check.y) return true
-    cx += dx
-    cy += dy
+  const dx = Math.sign(to.x - from.x);
+  const dy = Math.sign(to.y - from.y);
+  if (dx === 0 && dy === 0) return false;
+  
+  let cx = from.x + dx;
+  let cy = from.y + dy;
+  while (cx !== to.x || cy !== to.y) {
+    if (cx === check.x && cy === check.y) return true;
+    cx += dx;
+    cy += dy;
   }
-  return false
+  return false;
+}
+
+function isDisplacementPossible(holderPos: Position, tacklerPos: Position, pieces: Piece[]): boolean {
+  const directions = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+  return directions.some(d => {
+    const nx = holderPos.x + d.x;
+    const ny = holderPos.y + d.y;
+    if (nx < 0 || nx > 8 || ny < 0 || ny > 11) return false;
+    if (nx === tacklerPos.x && ny === tacklerPos.y) return true; 
+    return !pieces.some(p => p.pos.x === nx && p.pos.y === ny);
+  });
+}
+
+function getValidMoves(piece: Piece, boardState: BoardState, aiSide: Side): Position[] {
+  const valid: Position[] = [];
+  const { pieces, ball } = boardState;
+  
+  const directions: { [key: string]: Position[] } = {
+    king: [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }, { x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }],
+    queen: [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }, { x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }],
+    rook: [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }],
+    bishop: [{ x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }],
+    knight: [{ x: 1, y: 2 }, { x: 1, y: -2 }, { x: -1, y: 2 }, { x: -1, y: -2 }, { x: 2, y: 1 }, { x: 2, y: -1 }, { x: -2, y: 1 }, { x: -2, y: -1 }]
+  };
+
+  const pDirs = directions[piece.type] || [];
+
+  if (piece.type === 'knight') {
+    for (const d of pDirs) {
+      const nx = piece.pos.x + d.x;
+      const ny = piece.pos.y + d.y;
+      if (nx >= 0 && nx <= 8 && ny >= 0 && ny <= 11) {
+        const dest: Position = { x: nx, y: ny };
+        // Un caballo nunca puede pisar su propia área
+        if (isInsideArea(dest, piece.side)) continue;
+
+        const occupant = pieces.find(p => p.pos.x === nx && p.pos.y === ny);
+        if (occupant) {
+          if (occupant.side === piece.side) continue;
+          if (occupant.type === 'king') continue;
+          if (ball.holderId === occupant.id && isDisplacementPossible(occupant.pos, piece.pos, pieces)) {
+            valid.push(dest);
+          }
+        } else {
+          valid.push(dest);
+        }
+      }
+    }
+  } else {
+    const isLinearInfinite = piece.type === 'queen' || piece.type === 'rook' || piece.type === 'bishop';
+    for (const d of pDirs) {
+      let step = 1;
+      while (step < 12) {
+        const nx = piece.pos.x + d.x * step;
+        const ny = piece.pos.y + d.y * step;
+        if (nx < 0 || nx > 8 || ny < 0 || ny > 11) break;
+        
+        const dest: Position = { x: nx, y: ny };
+        if (piece.type === 'king' && !isInsideArea(dest, piece.side)) break;
+        if (piece.type !== 'king' && isInsideArea(dest, piece.side)) {
+          if (isLinearInfinite) { step++; continue; } else break;
+        }
+
+        const occupant = pieces.find(p => p.pos.x === nx && p.pos.y === ny);
+        if (occupant) {
+          if (occupant.side === piece.side) break;
+          if (occupant.type === 'king') break;
+          if (ball.holderId === occupant.id && isDisplacementPossible(occupant.pos, piece.pos, pieces)) {
+            valid.push(dest);
+          }
+          break; 
+        } else {
+          valid.push(dest);
+        }
+        
+        if (piece.type === 'king') break;
+        step++;
+      }
+    }
+  }
+  return valid;
+}
+
+function getValidPasses(piece: Piece, boardState: BoardState): Position[] {
+  const valid: Position[] = [];
+  const { pieces, keeperBlockedId } = boardState;
+
+  const patterns: { [key: string]: Position[] } = {
+    king: [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }, { x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }],
+    queen: [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }, { x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }],
+    rook: [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }],
+    bishop: [{ x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }],
+    knight: [{ x: 1, y: 2 }, { x: 1, y: -2 }, { x: -1, y: 2 }, { x: -1, y: -2 }, { x: 2, y: 1 }, { x: 2, y: -1 }, { x: -2, y: 1 }, { x: -2, y: -1 }]
+  };
+
+  const pDirs = patterns[piece.type] || [];
+  const myKing = pieces.find(p => p.type === 'king' && p.side === piece.side);
+
+  if (piece.type === 'knight' || piece.type === 'king') {
+    for (const d of pDirs) {
+      const nx = piece.pos.x + d.x;
+      const ny = piece.pos.y + d.y;
+      if (nx >= 0 && nx <= 8 && ny >= 0 && ny <= 11) {
+        if (keeperBlockedId && myKing && myKing.pos.x === nx && myKing.pos.y === ny) continue;
+        valid.push({ x: nx, y: ny });
+      }
+    }
+  } else {
+    for (const d of pDirs) {
+      let step = 1;
+      while (step < 12) {
+        const nx = piece.pos.x + d.x * step;
+        const ny = piece.pos.y + d.y * step;
+        if (nx < 0 || nx > 8 || ny < 0 || ny > 11) break;
+        if (keeperBlockedId && myKing && myKing.pos.x === nx && myKing.pos.y === ny) { step++; continue; }
+        valid.push({ x: nx, y: ny });
+        step++;
+      }
+    }
+  }
+  return valid;
+}
+
+function isPassSafe(from: Position, to: Position, boardState: BoardState, aiSide: Side): boolean {
+  const { pieces, ball } = boardState;
+  const holder = pieces.find(p => p.id === ball.holderId);
+  if (!holder) return false;
+
+  if (holder.type === 'knight') {
+    const atDest = pieces.find(p => p.pos.x === to.x && p.pos.y === to.y);
+    if (atDest && atDest.side !== aiSide && atDest.type !== 'king') return false;
+    return true;
+  }
+
+  const dx = Math.sign(to.x - from.x);
+  const dy = Math.sign(to.y - from.y);
+  let cx = from.x + dx;
+  let cy = from.y + dy;
+  let steps = 0;
+
+  while ((cx !== to.x || cy !== to.y) && steps < 20) {
+    const pieceInPath = pieces.find(p => p.pos.x === cx && p.pos.y === cy);
+    if (pieceInPath && pieceInPath.side !== aiSide) {
+      return pieceInPath.type === 'king';
+    }
+    cx += dx;
+    cy += dy;
+    steps++;
+  }
+
+  const atDest = pieces.find(p => p.pos.x === to.x && p.pos.y === to.y);
+  if (atDest && atDest.side !== aiSide && atDest.type !== 'king') return false;
+
+  return true;
+}
+
+function isBallDestinationSafe(to: Position, boardState: BoardState, aiSide: Side): boolean {
+  const opponentSide: Side = aiSide === 'white' ? 'black' : 'white';
+  const teammateAtDest = boardState.pieces.find(p => p.pos.x === to.x && p.pos.y === to.y && p.side === aiSide);
+  
+  const simulatedBall = { pos: to, holderId: teammateAtDest ? teammateAtDest.id : null };
+  const simulatedState = { ...boardState, ball: simulatedBall };
+
+  const opponentPieces = boardState.pieces.filter(p => p.side === opponentSide && p.type !== 'king');
+  for (const opp of opponentPieces) {
+    const oppMoves = getValidMoves(opp, simulatedState, opp.side);
+    if (oppMoves.some(m => m.x === to.x && m.y === to.y)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function endsInOffside(simState: BoardState, aiSide: Side): boolean {
+  const holder = simState.pieces.find(p => p.id === simState.ball.holderId);
+  if (!holder || holder.side !== aiSide || holder.type === 'king') return false;
+  const enemyYMin = aiSide === 'white' ? 10 : 0;
+  const enemyYMax = aiSide === 'white' ? 11 : 1;
+  return holder.pos.x >= 2 && holder.pos.x <= 6 && holder.pos.y >= enemyYMin && holder.pos.y <= enemyYMax;
 }
 
 function findShotOnGoal(boardState: BoardState, aiSide: Side): { pieceId: string; to: Position } | null {
-  const holder = boardState.pieces.find(p => p.id === boardState.ball.holderId)
-  if (!holder || holder.side !== aiSide) return null
+  const holder = boardState.pieces.find(p => p.id === boardState.ball.holderId);
+  if (!holder || holder.side !== aiSide) return null;
 
-  const rivalKing = boardState.pieces.find(p => p.type === 'king' && p.side !== aiSide)
-  if (!rivalKing) return null
+  const rivalKing = boardState.pieces.find(p => p.type === 'king' && p.side !== aiSide);
+  if (!rivalKing) return null;
 
-  const passTargets = getValidPasses(holder, boardState)
+  const passTargets = getValidPasses(holder, boardState);
   for (const target of passTargets) {
     if (target.x === rivalKing.pos.x && target.y === rivalKing.pos.y) {
       if (isPassSafe(holder.pos, target, boardState, aiSide)) {
-        return { pieceId: holder.id, to: target }
+        return { pieceId: holder.id, to: target };
       }
     }
     if (holder.type !== 'knight' && isOnLineBetween(holder.pos, target, rivalKing.pos)) {
       if (isPassSafe(holder.pos, target, boardState, aiSide)) {
-        return { pieceId: holder.id, to: target }
+        return { pieceId: holder.id, to: target };
       }
     }
   }
-  return null
+  return null;
 }
 
 function isKingUnderDirectThreat(boardState: BoardState, aiSide: Side): boolean {
-  const myKing = boardState.pieces.find(p => p.type === 'king' && p.side === aiSide)
-  if (!myKing) return false
+  const myKing = boardState.pieces.find(p => p.type === 'king' && p.side === aiSide);
+  if (!myKing) return false;
 
-  const ballHolder = boardState.pieces.find(p => p.id === boardState.ball.holderId)
-  if (!ballHolder || ballHolder.side === aiSide) return false
+  const ballHolder = boardState.pieces.find(p => p.id === boardState.ball.holderId);
+  if (!ballHolder || ballHolder.side === aiSide) return false;
 
-  return isPassSafe(ballHolder.pos, myKing.pos, boardState, ballHolder.side)
+  return isPassSafe(ballHolder.pos, myKing.pos, boardState, ballHolder.side);
+}
+
+function findIncomingShotSquares(boardState: BoardState, aiSide: Side): Position[] {
+  const myKing = boardState.pieces.find(p => p.type === 'king' && p.side === aiSide);
+  const ballHolder = boardState.pieces.find(p => p.id === boardState.ball.holderId);
+  if (!myKing || !ballHolder || ballHolder.side === aiSide) return [];
+
+  const threats: Position[] = [];
+  for (const dest of getValidMoves(ballHolder, boardState, ballHolder.side)) {
+    const simPieces = boardState.pieces.map(p => p.id === ballHolder.id ? { ...p, pos: dest } : p);
+    const simState = { ...boardState, pieces: simPieces, ball: { pos: dest, holderId: ballHolder.id } };
+    if (isPassSafe(dest, myKing.pos, simState, ballHolder.side)) {
+      threats.push(dest);
+    }
+  }
+  return threats;
 }
 
 function findDefensiveBlock(boardState: BoardState, aiSide: Side): { pieceId: string; to: Position } | null {
-  if (!isKingUnderDirectThreat(boardState, aiSide)) return null
+  const myKing = boardState.pieces.find(p => p.type === 'king' && p.side === aiSide);
+  const ballHolder = boardState.pieces.find(p => p.id === boardState.ball.holderId);
+  if (!myKing || !ballHolder || ballHolder.side === aiSide) return null;
 
-  const myKing = boardState.pieces.find(p => p.type === 'king' && p.side === aiSide)!
-  const ballHolder = boardState.pieces.find(p => p.id === boardState.ball.holderId)!
-  if (ballHolder.type === 'knight') return null
+  // Los pases de caballo no pueden bloquearse (saltan todo)
+  if (ballHolder.type === 'knight') return null;
 
-  const dx = Math.sign(myKing.pos.x - ballHolder.pos.x)
-  const dy = Math.sign(myKing.pos.y - ballHolder.pos.y)
-  const path: Position[] = []
-  let cx = ballHolder.pos.x + dx
-  let cy = ballHolder.pos.y + dy
-  let iter = 0
+  // Solo hay carril que bloquear si portador y rey están alineados (fila/columna/diagonal)
+  const adx = Math.abs(myKing.pos.x - ballHolder.pos.x);
+  const ady = Math.abs(myKing.pos.y - ballHolder.pos.y);
+  if (!(myKing.pos.x === ballHolder.pos.x || myKing.pos.y === ballHolder.pos.y || adx === ady)) return null;
 
-  while ((cx !== myKing.pos.x || cy !== myKing.pos.y) && iter < 12) {
-    iter++
-    path.push({ x: cx, y: cy })
-    cx += dx
-    cy += dy
+  const dx = Math.sign(myKing.pos.x - ballHolder.pos.x);
+  const dy = Math.sign(myKing.pos.y - ballHolder.pos.y);
+  if (dx === 0 && dy === 0) return null;
+
+  const path: Position[] = [];
+  let cx = ballHolder.pos.x + dx;
+  let cy = ballHolder.pos.y + dy;
+  while ((cx !== myKing.pos.x || cy !== myKing.pos.y) && path.length < 20) {
+    path.push({ x: cx, y: cy });
+    cx += dx;
+    cy += dy;
   }
 
-  const myPieces = boardState.pieces.filter(p => p.side === aiSide && p.type !== 'king' && !p.hasMovedThisTurn)
+  const myPieces = boardState.pieces.filter(p => p.side === aiSide && p.type !== 'king' && !p.hasMovedThisTurn);
   for (const blockSquare of path) {
+    if (boardState.pieces.some(p => p.pos.x === blockSquare.x && p.pos.y === blockSquare.y)) continue;
     for (const myPiece of myPieces) {
-      const validMoves = getValidMoves(myPiece, boardState, myPiece.side)
+      const validMoves = getValidMoves(myPiece, boardState, myPiece.side);
       if (validMoves.some(m => m.x === blockSquare.x && m.y === blockSquare.y)) {
-        return { pieceId: myPiece.id, to: blockSquare }
+        return { pieceId: myPiece.id, to: blockSquare };
       }
     }
   }
-  return null
+  return null;
 }
 
 function findBestTackle(boardState: BoardState, aiSide: Side): { pieceId: string; to: Position } | null {
-  const ballHolder = boardState.pieces.find(p => p.id === boardState.ball.holderId)
-  if (!ballHolder || ballHolder.side === aiSide || ballHolder.type === 'king') return null
+  const ballHolder = boardState.pieces.find(p => p.id === boardState.ball.holderId);
+  if (!ballHolder || ballHolder.side === aiSide || ballHolder.type === 'king') return null;
 
-  const opponentKingY = aiSide === 'white' ? 10 : 1
-  const candidates: Array<{ pieceId: string; to: Position; dist: number }> = []
+  const opponentKingY = aiSide === 'white' ? 10 : 1;
+  const candidates: Array<{ pieceId: string; to: Position; dist: number }> = [];
 
-  const myPieces = boardState.pieces.filter(p => p.side === aiSide && p.type !== 'king' && !p.hasMovedThisTurn)
+  const myPieces = boardState.pieces.filter(p => p.side === aiSide && p.type !== 'king' && !p.hasMovedThisTurn);
   for (const myPiece of myPieces) {
-    const validMoves = getValidMoves(myPiece, boardState, myPiece.side)
+    const validMoves = getValidMoves(myPiece, boardState, myPiece.side);
     if (validMoves.some(m => m.x === ballHolder.pos.x && m.y === ballHolder.pos.y)) {
-      const dist = Math.abs(myPiece.pos.y - opponentKingY)
-      candidates.push({ pieceId: myPiece.id, to: ballHolder.pos, dist })
+      const dist = Math.abs(myPiece.pos.y - opponentKingY);
+      candidates.push({ pieceId: myPiece.id, to: ballHolder.pos, dist });
     }
   }
 
-  if (candidates.length === 0) return null
-  candidates.sort((a, b) => a.dist - b.dist)
-  return { pieceId: candidates[0].pieceId, to: candidates[0].to }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.dist - b.dist);
+  return { pieceId: candidates[0].pieceId, to: candidates[0].to };
 }
 
-function cloneBoardState(state: BoardState): BoardState {
-  return {
-    pieces: state.pieces.map(p => ({ ...p })),
-    ball: { pos: { ...state.ball.pos }, holderId: state.ball.holderId },
-    score: { ...state.score },
-    actionPoints: state.actionPoints,
-    turn: state.turn,
-    kingMustRelease: state.kingMustRelease,
-    keeperBlockedId: state.keeperBlockedId,
-    lastMove: state.lastMove ? { ...state.lastMove } : undefined,
-    moveHistory: state.moveHistory,
-    turnNumber: state.turnNumber
-  }
-}
+function findLooseBallCapture(boardState: BoardState, aiSide: Side): { pieceId: string; to: Position } | null {
+  if (boardState.ball.holderId !== null) return null;
+  const ballPos = boardState.ball.pos;
 
-function simulateAction(state: BoardState, action: AIAction): BoardState {
-  const nextState = cloneBoardState(state)
-  nextState.actionPoints -= 1
-
-  if (action.type === 'move' && action.pieceId && action.to) {
-    const piece = nextState.pieces.find(p => p.id === action.pieceId)
-    if (piece) {
-      const targetX = action.to.x
-      const targetY = action.to.y
-      
-      const rival = nextState.pieces.find(p => p.pos.x === targetX && p.pos.y === targetY)
-      if (rival && rival.side !== piece.side && nextState.ball.holderId === rival.id) {
-        const offsets = [
-          { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 },
-          { dx: 1, dy: 1 }, { dx: -1, dy: 1 }, { dx: 1, dy: -1 }, { dx: -1, dy: -1 }
-        ]
-        for (const o of offsets) {
-          const nx = rival.pos.x + o.dx
-          const ny = rival.pos.y + o.dy
-          if (nx >= 0 && nx <= 8 && ny >= 0 && ny <= 11) {
-            if (!nextState.pieces.some(p => p.pos.x === nx && p.pos.y === ny)) {
-              rival.pos = { x: nx, y: ny }
-              break
-            }
-          }
-        }
-        nextState.ball.holderId = piece.id
-      }
-      
-      piece.pos = { x: targetX, y: targetY }
-      piece.hasMovedThisTurn = true
-      
-      if (nextState.ball.holderId === piece.id) {
-        nextState.ball.pos = { x: targetX, y: targetY }
-      } else if (nextState.ball.pos.x === targetX && nextState.ball.pos.y === targetY) {
-        nextState.ball.holderId = piece.id
-      }
-    }
-  } else if (action.type === 'pass' && action.pieceId && action.to) {
-    const passTo = action.to
-    const piece = nextState.pieces.find(p => p.id === action.pieceId)
-    if (piece && nextState.ball.holderId === piece.id) {
-      const rivalKing = nextState.pieces.find(p => p.type === 'king' && p.side !== piece.side)
-      let finalPos = { ...passTo }
-      let finalHolderId: string | null = null
-      let turnEnded = false
-
+  const myPieces = boardState.pieces.filter(p => p.side === aiSide && p.type !== 'king' && !p.hasMovedThisTurn);
+  for (const piece of myPieces) {
+    for (const dest of getValidMoves(piece, boardState, piece.side)) {
       if (piece.type === 'knight') {
-        const atDest = nextState.pieces.find(p => p.pos.x === passTo.x && p.pos.y === passTo.y)
-        if (rivalKing && passTo.x === rivalKing.pos.x && passTo.y === rivalKing.pos.y) {
-          turnEnded = true
-        } else if (atDest) {
-          finalHolderId = atDest.id
-          if (atDest.side !== piece.side) turnEnded = true
+        if (dest.x === ballPos.x && dest.y === ballPos.y) {
+          return { pieceId: piece.id, to: dest };
         }
-      } else {
-        const dx = Math.sign(passTo.x - piece.pos.x)
-        const dy = Math.sign(passTo.y - piece.pos.y)
-        let cx = piece.pos.x + dx
-        let cy = piece.pos.y + dy
-        let iter = 0
-        while ((cx !== passTo.x || cy !== passTo.y) && iter < 12) {
-          iter++
-          const pathPiece = nextState.pieces.find(p => p.pos.x === cx && p.pos.y === cy)
-          if (pathPiece) {
-            if (pathPiece.side !== piece.side) {
-              if (pathPiece.type === 'king') {
-                finalPos = { x: cx, y: cy }
-                turnEnded = true
-              } else {
-                finalPos = { x: cx, y: cy }
-                finalHolderId = pathPiece.id
-                turnEnded = true
-              }
-            } else {
-              finalPos = { x: cx - dx, y: cy - dy }
-              break
-            }
-          }
-          if (turnEnded) break
-          cx += dx
-          cy += dy
-        }
-
-        if (!turnEnded) {
-          const atDest = nextState.pieces.find(p => p.pos.x === passTo.x && p.pos.y === passTo.y)
-          if (rivalKing && passTo.x === rivalKing.pos.x && passTo.y === rivalKing.pos.y) {
-            turnEnded = true
-          } else if (atDest) {
-            finalHolderId = atDest.id
-            if (atDest.side !== piece.side) turnEnded = true
-          }
-        }
-      }
-
-      nextState.ball.pos = finalPos
-      nextState.ball.holderId = finalHolderId
-      if (turnEnded) {
-        nextState.actionPoints = 0
-      }
-      if (piece.type === 'king') {
-        nextState.keeperBlockedId = piece.id
+      } else if (isOnLineBetween(piece.pos, dest, ballPos) || (dest.x === ballPos.x && dest.y === ballPos.y)) {
+        return { pieceId: piece.id, to: dest };
       }
     }
-  } else if (action.type === 'end_turn') {
-    nextState.actionPoints = 0
+  }
+  return null;
+}
+
+// ============================================
+// Funciones de simulación incremental
+// ============================================
+
+function applySimMove(state: BoardState, pieceId: string, to: Position): void {
+  const piece = state.pieces.find(p => p.id === pieceId);
+  if (!piece) return;
+
+  const oldPos = { ...piece.pos };
+  piece.pos = { ...to };
+  piece.hasMovedThisTurn = true;
+
+  // Si era tackle
+  const rival = state.pieces.find(p => p.pos.x === to.x && p.pos.y === to.y && p.id !== pieceId);
+  if (rival && state.ball.holderId === rival.id) {
+    state.ball.holderId = piece.id;
+    state.ball.pos = { ...to };
+    // Desplazar rival a la primera ortogonal libre simulada
+    const dirs = [{x:1,y:0}, {x:-1,y:0}, {x:0,y:1}, {x:0,y:-1}];
+    for (const d of dirs) {
+      const rx = to.x + d.x;
+      const ry = to.y + d.y;
+      if (rx >= 0 && rx <= 8 && ry >= 0 && ry <= 11 && !(rx === oldPos.x && ry === oldPos.y)) {
+        if (!state.pieces.some(p => p.pos.x === rx && p.pos.y === ry)) {
+          rival.pos = { x: rx, y: ry };
+          break;
+        }
+      }
+    }
+    return;
   }
 
-  return nextState
+  // Si conducía balón
+  if (state.ball.holderId === pieceId) {
+    state.ball.pos = { ...to };
+  } 
+  // Si captura balón suelto en trayectoria o destino
+  else if (state.ball.holderId === null) {
+    if (piece.type === 'knight') {
+      if (to.x === state.ball.pos.x && to.y === state.ball.pos.y) {
+        state.ball.holderId = piece.id;
+      }
+    } else {
+      if (isOnLineBetween(oldPos, to, state.ball.pos) || (to.x === state.ball.pos.x && to.y === state.ball.pos.y)) {
+        state.ball.holderId = piece.id;
+        state.ball.pos = { ...to };
+      }
+    }
+  }
+}
+
+function applySimPass(state: BoardState, pieceId: string, to: Position, aiSide: Side): void {
+  const piece = state.pieces.find(p => p.id === pieceId);
+  if (!piece) return;
+
+  if (piece.type === 'king') {
+    state.keeperBlockedId = piece.id;
+    if (state.kingMustRelease === aiSide) {
+      state.kingMustRelease = undefined;
+    }
+  }
+
+  // Intercepción lineal en ruta
+  if (piece.type !== 'knight') {
+    const dx = Math.sign(to.x - piece.pos.x);
+    const dy = Math.sign(to.y - piece.pos.y);
+    let cx = piece.pos.x + dx;
+    let cy = piece.pos.y + dy;
+    while (cx !== to.x || cy !== to.y) {
+      const opp = state.pieces.find(p => p.pos.x === cx && p.pos.y === cy && p.side !== aiSide);
+      if (opp) {
+        if (opp.type === 'king') {
+          // GOL simulado
+          state.ball.holderId = opp.id;
+          state.ball.pos = { ...opp.pos };
+          state.actionPoints = 0;
+          return;
+        } else {
+          // Intercepción
+          state.ball.holderId = opp.id;
+          state.ball.pos = { ...opp.pos };
+          state.actionPoints = 0;
+          return;
+        }
+      }
+      cx += dx;
+      cy += dy;
+    }
+  }
+
+  // Destino
+  const targetPiece = state.pieces.find(p => p.pos.x === to.x && p.pos.y === to.y);
+  if (targetPiece) {
+    state.ball.holderId = targetPiece.id;
+    state.ball.pos = { ...to };
+    if (targetPiece.side !== aiSide) {
+      state.actionPoints = 0; // Si es rival, corta AP
+    }
+  } else {
+    state.ball.holderId = null;
+    state.ball.pos = { ...to };
+  }
 }
 
 // ============================================
@@ -444,266 +461,214 @@ function simulateAction(state: BoardState, action: AIAction): BoardState {
 // ============================================
 
 export const aiPlayer: AIPlayerScript = {
-  name: "TikiTaka_AI",
-  description: "Estrategia avanzada que combina pases seguros milimétricos, delantera de caballos inmunes a interceptación y repliegues defensivos inteligentes.",
-  avatar: "⚡",
+  name: "MagoTáctico AI",
+  description: "Estratega de pases de alta precisión que domina las transiciones mediante desmarques rápidos de caballos y anticipación de amenazas contra el rey.",
+  avatar: "🧙‍♂️",
   difficulty: "advanced",
-  badgeName: "Conquistador del Tablero",
-  badgeIcon: "crown",
+  badgeName: "Desmitificador del Mago",
+  badgeIcon: "target",
   play: (boardState: BoardState, aiSide: Side): AIAction[] => {
     try {
-      let currentBoard = cloneBoardState(boardState)
-      const actions: AIAction[] = []
-      let loopGuard = 0
+      const actions: AIAction[] = [];
+      let simState = cloneState(boardState);
+      let budget = simState.actionPoints;
 
-      while (currentBoard.actionPoints > 0 && actions.length < 5 && loopGuard < 10) {
-        loopGuard++
-
-        // 0. Obligación de liberar el balón del Rey
-        if (currentBoard.kingMustRelease === aiSide) {
-          const myKing = currentBoard.pieces.find(p => p.type === 'king' && p.side === aiSide)
-          if (myKing && currentBoard.ball.holderId === myKing.id) {
-            const passTargets = getValidPasses(myKing, currentBoard)
-            let chosenPass: Position | null = null
+      while (budget > 0) {
+        // PRIORIDAD 0: Obligación de liberar el balón con el Rey
+        if (simState.kingMustRelease === aiSide) {
+          const myKing = simState.pieces.find(p => p.type === 'king' && p.side === aiSide);
+          if (myKing && simState.ball.holderId === myKing.id) {
+            const passes = getValidPasses(myKing, simState);
+            let fallbackPass: Position | null = null;
+            let foundSafe = false;
             
-            for (const target of passTargets) {
-              if (isPassSafe(myKing.pos, target, currentBoard, aiSide) && isBallDestinationSafe(target, currentBoard, aiSide)) {
-                const tm = currentBoard.pieces.find(p => p.pos.x === target.x && p.pos.y === target.y && p.side === aiSide)
-                if (tm) { chosenPass = target; break }
+            for (const p of passes) {
+              const teammate = simState.pieces.find(pt => pt.pos.x === p.x && pt.pos.y === p.y && pt.side === aiSide);
+              if (teammate && isPassSafe(myKing.pos, p, simState, aiSide) && isBallDestinationSafe(p, simState, aiSide)) {
+                actions.push({ type: 'pass', pieceId: myKing.id, to: p });
+                applySimPass(simState, myKing.id, p, aiSide);
+                foundSafe = true;
+                break;
+              }
+              if (!teammate && isPassSafe(myKing.pos, p, simState, aiSide) && isBallDestinationSafe(p, simState, aiSide)) {
+                fallbackPass = p;
               }
             }
-            if (!chosenPass) {
-              for (const target of passTargets) {
-                if (isPassSafe(myKing.pos, target, currentBoard, aiSide) && isBallDestinationSafe(target, currentBoard, aiSide)) {
-                  chosenPass = target; break
-                }
-              }
+            if (!foundSafe && fallbackPass) {
+              actions.push({ type: 'pass', pieceId: myKing.id, to: fallbackPass });
+              applySimPass(simState, myKing.id, fallbackPass, aiSide);
+              foundSafe = true;
             }
-            if (!chosenPass && passTargets.length > 0) {
-              chosenPass = passTargets[0]
+            if (!foundSafe && passes.length > 0) {
+              actions.push({ type: 'pass', pieceId: myKing.id, to: passes[0] });
+              applySimPass(simState, myKing.id, passes[0], aiSide);
             }
-            if (chosenPass) {
-              const act: AIAction = { type: 'pass', pieceId: myKing.id, to: chosenPass }
-              actions.push(act)
-              currentBoard = simulateAction(currentBoard, act)
-              continue
-            }
+            budget--;
+            simState.actionPoints = budget;
+            continue;
           }
         }
 
-        // 1. Oportunidad Directa de Gol
-        const shot = findShotOnGoal(currentBoard, aiSide)
+        // PRIORIDAD 1: Oportunidad de Gol inmediata
+        const shot = findShotOnGoal(simState, aiSide);
         if (shot) {
-          const act: AIAction = { type: 'pass', pieceId: shot.pieceId, to: shot.to }
-          actions.push(act)
-          currentBoard = simulateAction(currentBoard, act)
-          break
+          actions.push({ type: 'pass', pieceId: shot.pieceId, to: shot.to });
+          applySimPass(simState, shot.pieceId, shot.to, aiSide);
+          break; 
         }
 
-        // 2. Emergencia Defensiva (Rey Amenazado)
-        if (isKingUnderDirectThreat(currentBoard, aiSide)) {
-          const tackle = findBestTackle(currentBoard, aiSide)
-          if (tackle) {
-            const act: AIAction = { type: 'move', pieceId: tackle.pieceId, to: tackle.to }
-            actions.push(act)
-            currentBoard = simulateAction(currentBoard, act)
-            continue
+        // PRIORIDAD 2: Balón suelto (Carrera por el esférico)
+        if (simState.ball.holderId === null) {
+          const capture = findLooseBallCapture(simState, aiSide);
+          if (capture) {
+            actions.push({ type: 'move', pieceId: capture.pieceId, to: capture.to });
+            applySimMove(simState, capture.pieceId, capture.to);
+            budget--;
+            simState.actionPoints = budget;
+            continue;
           }
+        }
 
-          const block = findDefensiveBlock(currentBoard, aiSide)
+        // PRIORIDAD 3: Defensa de Emergencia (Amenazas al Rey)
+        const directThreat = isKingUnderDirectThreat(simState, aiSide);
+        const incomingSquares = findIncomingShotSquares(simState, aiSide);
+        if (directThreat || incomingSquares.length > 0) {
+          const tackle = findBestTackle(simState, aiSide);
+          if (tackle) {
+            actions.push({ type: 'move', pieceId: tackle.pieceId, to: tackle.to });
+            applySimMove(simState, tackle.pieceId, tackle.to);
+            budget--;
+            simState.actionPoints = budget;
+            continue;
+          }
+          const block = findDefensiveBlock(simState, aiSide);
           if (block) {
-            const act: AIAction = { type: 'move', pieceId: block.pieceId, to: block.to }
-            actions.push(act)
-            currentBoard = simulateAction(currentBoard, act)
-            continue
+            actions.push({ type: 'move', pieceId: block.pieceId, to: block.to });
+            applySimMove(simState, block.pieceId, block.to);
+            budget--;
+            simState.actionPoints = budget;
+            continue;
           }
-
-          const myKing = currentBoard.pieces.find(p => p.type === 'king' && p.side === aiSide)
+          // Si no se puede placar ni bloquear, mover el rey defensivamente
+          const myKing = simState.pieces.find(p => p.type === 'king' && p.side === aiSide);
           if (myKing && !myKing.hasMovedThisTurn) {
-            const kmoves = getValidMoves(myKing, currentBoard, aiSide)
-            let safeKMove: Position | null = null
-            for (const km of kmoves) {
-              const testState = cloneBoardState(currentBoard)
-              const pk = testState.pieces.find(p => p.id === myKing.id)!
-              pk.pos = km
-              if (!isKingUnderDirectThreat(testState, aiSide)) {
-                safeKMove = km
-                break
-              }
-            }
-            if (safeKMove) {
-              const act: AIAction = { type: 'move', pieceId: myKing.id, to: safeKMove }
-              actions.push(act)
-              currentBoard = simulateAction(currentBoard, act)
-              continue
+            const kingMoves = getValidMoves(myKing, simState, aiSide);
+            if (kingMoves.length > 0) {
+              actions.push({ type: 'move', pieceId: myKing.id, to: kingMoves[0] });
+              applySimMove(simState, myKing.id, kingMoves[0]);
+              budget--;
+              simState.actionPoints = budget;
+              continue;
             }
           }
         }
 
-        // 3. Fase Ofensiva (Tenemos la posesión)
-        const holder = currentBoard.pieces.find(p => p.id === currentBoard.ball.holderId)
+        // PRIORIDAD 4: Gestión de la Posesión y Progresión de ataque
+        const holder = simState.pieces.find(p => p.id === simState.ball.holderId);
         if (holder && holder.side === aiSide) {
-          const passTargets = getValidPasses(holder, currentBoard)
-          const oppKingY = aiSide === 'white' ? 10 : 1
-          let knightPass: { pieceId: string; to: Position } | null = null
-
-          for (const target of passTargets) {
-            if (isPassSafe(holder.pos, target, currentBoard, aiSide) && isBallDestinationSafe(target, currentBoard, aiSide)) {
-              const pAtDest = currentBoard.pieces.find(p => p.pos.x === target.x && p.pos.y === target.y)
-              if (pAtDest && pAtDest.side === aiSide && pAtDest.type === 'knight') {
-                if (Math.abs(target.y - oppKingY) < Math.abs(holder.pos.y - oppKingY)) {
-                  knightPass = { pieceId: holder.id, to: target }
-                  break
-                }
-              }
-            }
-          }
-
-          if (knightPass) {
-            const act: AIAction = { type: 'pass', pieceId: knightPass.pieceId, to: knightPass.to }
-            actions.push(act)
-            currentBoard = simulateAction(currentBoard, act)
-            continue
-          }
-
+          // Si estamos conduciendo y podemos avanzar hacia campo rival de forma segura
           if (!holder.hasMovedThisTurn) {
-            const moves = getValidMoves(holder, currentBoard, aiSide)
-            let bestMove: Position | null = null
-            let bestDist = Math.abs(holder.pos.y - oppKingY)
-
-            for (const m of moves) {
-              const dist = Math.abs(m.y - oppKingY)
-              if (dist < bestDist) {
-                bestDist = dist
-                bestMove = m
-              }
-            }
-
-            if (bestMove) {
-              const act: AIAction = { type: 'move', pieceId: holder.id, to: bestMove }
-              actions.push(act)
-              currentBoard = simulateAction(currentBoard, act)
-              continue
-            }
-          }
-
-          let forwardPass: Position | null = null
-          let minPassDist = Math.abs(holder.pos.y - oppKingY)
-          for (const target of passTargets) {
-            if (isPassSafe(holder.pos, target, currentBoard, aiSide) && isBallDestinationSafe(target, currentBoard, aiSide)) {
-              const tm = currentBoard.pieces.find(p => p.pos.x === target.x && p.pos.y === target.y && p.side === aiSide)
-              if (tm) {
-                const dist = Math.abs(target.y - oppKingY)
-                if (dist < minPassDist) {
-                  minPassDist = dist
-                  forwardPass = target
-                }
-              }
-            }
-          }
-
-          if (forwardPass) {
-            const act: AIAction = { type: 'pass', pieceId: holder.id, to: forwardPass }
-            actions.push(act)
-            currentBoard = simulateAction(currentBoard, act)
-            continue
-          }
-
-          let openPass: Position | null = null
-          let minOpenDist = Math.abs(holder.pos.y - oppKingY)
-          for (const target of passTargets) {
-            if (isPassSafe(holder.pos, target, currentBoard, aiSide) && isBallDestinationSafe(target, currentBoard, aiSide)) {
-              if (!currentBoard.pieces.some(p => p.pos.x === target.x && p.pos.y === target.y)) {
-                const dist = Math.abs(target.y - oppKingY)
-                if (dist < minOpenDist) {
-                  minOpenDist = dist
-                  openPass = target
-                }
-              }
-            }
-          }
-
-          if (openPass) {
-            const act: AIAction = { type: 'pass', pieceId: holder.id, to: openPass }
-            actions.push(act)
-            currentBoard = simulateAction(currentBoard, act)
-            continue
-          }
-        }
-
-        // 4. Recuperación y Presión (No tenemos la posesión)
-        if (!holder || holder.side !== aiSide) {
-          const tackle = findBestTackle(currentBoard, aiSide)
-          if (tackle) {
-            const act: AIAction = { type: 'move', pieceId: tackle.pieceId, to: tackle.to }
-            actions.push(act)
-            currentBoard = simulateAction(currentBoard, act)
-            continue
-          }
-
-          if (currentBoard.ball.holderId === null) {
-            const bpos = currentBoard.ball.pos
-            let bestGrabber: { pieceId: string; to: Position } | null = null
-            let minGrabDist = 999
+            const moves = getValidMoves(holder, simState, aiSide);
+            let bestMove: Position | null = null;
+            let bestY = holder.pos.y;
             
-            const myPieces = currentBoard.pieces.filter(p => p.side === aiSide && p.type !== 'king' && !p.hasMovedThisTurn)
-            for (const p of myPieces) {
-              const moves = getValidMoves(p, currentBoard, aiSide)
-              if (moves.some(m => m.x === bpos.x && m.y === bpos.y)) {
-                bestGrabber = { pieceId: p.id, to: bpos }
-                break
-              } else {
-                for (const m of moves) {
-                  const dist = Math.abs(m.x - bpos.x) + Math.abs(m.y - bpos.y)
-                  if (dist < minGrabDist) {
-                    minGrabDist = dist
-                    bestGrabber = { pieceId: p.id, to: m }
-                  }
+            for (const m of moves) {
+              const isProgression = aiSide === 'white' ? m.y > bestY : m.y < bestY;
+              if (isProgression) {
+                // Evitar caer en fuera de juego preventivamente si no se puede chutar
+                const nextState = cloneState(simState);
+                applySimMove(nextState, holder.id, m);
+                if (!endsInOffside(nextState, aiSide)) {
+                  bestMove = m;
+                  bestY = m.y;
                 }
               }
             }
-
-            if (bestGrabber) {
-              const act: AIAction = { type: 'move', pieceId: bestGrabber.pieceId, to: bestGrabber.to }
-              actions.push(act)
-              currentBoard = simulateAction(currentBoard, act)
-              continue
+            if (bestMove) {
+              actions.push({ type: 'move', pieceId: holder.id, to: bestMove });
+              applySimMove(simState, holder.id, bestMove);
+              budget--;
+              simState.actionPoints = budget;
+              continue;
             }
           }
 
-          const oppHolder = currentBoard.pieces.find(p => p.id === currentBoard.ball.holderId)
-          const targetPos = oppHolder ? oppHolder.pos : currentBoard.ball.pos
-          let pressAct: AIAction | null = null
-          let minPressDist = 999
+          // Si mover no es opción, buscar pase adelantado seguro (priorizando Caballos atacantes)
+          const passes = getValidPasses(holder, simState);
+          let advancedPass: Position | null = null;
+          let bestPassY = holder.pos.y;
 
-          const myPieces = currentBoard.pieces.filter(p => p.side === aiSide && p.type !== 'king' && !p.hasMovedThisTurn)
-          for (const p of myPieces) {
-            const moves = getValidMoves(p, currentBoard, aiSide)
-            for (const m of moves) {
-              const dist = Math.abs(m.x - targetPos.x) + Math.abs(m.y - targetPos.y)
-              if (dist < minPressDist) {
-                minPressDist = dist
-                pressAct = { type: 'move', pieceId: p.id, to: m }
+          for (const p of passes) {
+            const targetTeammate = simState.pieces.find(pt => pt.pos.x === p.x && pt.pos.y === p.y && pt.side === aiSide);
+            const isProgression = aiSide === 'white' ? p.y > bestPassY : p.y < bestPassY;
+            
+            if (isProgression && isPassSafe(holder.pos, p, simState, aiSide) && isBallDestinationSafe(p, simState, aiSide)) {
+              // Chequear que no deje en fuera de juego al receptor
+              const nextState = cloneState(simState);
+              applySimPass(nextState, holder.id, p, aiSide);
+              if (!endsInOffside(nextState, aiSide)) {
+                if (targetTeammate && targetTeammate.type === 'knight') {
+                  advancedPass = p;
+                  break; // Los pases a caballos son óptimos
+                }
+                advancedPass = p;
+                bestPassY = p.y;
               }
             }
           }
 
-          if (pressAct) {
-            actions.push(pressAct)
-            currentBoard = simulateAction(currentBoard, pressAct)
-            continue
+          if (advancedPass) {
+            actions.push({ type: 'pass', pieceId: holder.id, to: advancedPass });
+            applySimPass(simState, holder.id, advancedPass, aiSide);
+            budget--;
+            simState.actionPoints = budget;
+            continue;
+          }
+        } else {
+          // Si no tenemos el balón, intentar robarlo vía tackle proactivo
+          const tackle = findBestTackle(simState, aiSide);
+          if (tackle) {
+            actions.push({ type: 'move', pieceId: tackle.pieceId, to: tackle.to });
+            applySimMove(simState, tackle.pieceId, tackle.to);
+            budget--;
+            simState.actionPoints = budget;
+            continue;
           }
         }
 
-        // Cierre de seguridad si no hay más opciones válidas
-        actions.push({ type: 'end_turn' })
-        break
+        // PRIORIDAD 5: Reposicionamiento táctico general (Gastar AP sobrante)
+        const activePieces = simState.pieces.filter(p => p.side === aiSide && p.type !== 'king' && !p.hasMovedThisTurn);
+        let movedAny = false;
+        
+        for (const piece of activePieces) {
+          const moves = getValidMoves(piece, simState, aiSide);
+          if (moves.length > 0) {
+            // Adelantar piezas defensivas o de soporte
+            let targetMove = moves[0];
+            for (const m of moves) {
+              const isBetter = aiSide === 'white' ? m.y > targetMove.y : m.y < targetMove.y;
+              if (isBetter) targetMove = m;
+            }
+            actions.push({ type: 'move', pieceId: piece.id, to: targetMove });
+            applySimMove(simState, piece.id, targetMove);
+            movedAny = true;
+            break;
+          }
+        }
+
+        if (!movedAny) {
+          actions.push({ type: 'end_turn' });
+          break;
+        }
+
+        budget--;
+        simState.actionPoints = budget;
       }
 
-      if (actions.length === 0) actions.push({ type: 'end_turn' })
-      return actions
+      if (actions.length === 0) actions.push({ type: 'end_turn' });
+      return actions;
     } catch {
-      return [{ type: 'end_turn' }]
+      return [{ type: 'end_turn' }];
     }
   }
-}
+};
