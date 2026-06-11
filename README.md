@@ -24,7 +24,7 @@ Chess.Football is played on a **9×12 grid** (columns A–I, ranks 1–12).
 
 - **White** starts at the bottom (ranks 1–2 penalty area), **Black** at the top (ranks 11–12).
 - Each side has one **King** (goalkeeper) restricted to its own penalty area, plus **Queen**, **Rooks**, **Bishops**, and **Knights** that cannot enter their own penalty area.
-- Each turn a side has **5 Action Points (AP)**. Moving or passing costs 1 AP. The turn ends when all AP are spent, a pass is intercepted, or the player calls `applyEndTurn`.
+- Each turn a side has a configurable number of **Action Points (AP)** — **1–5, default 5** (`maxActionPoints`). Moving or passing costs 1 AP. The turn ends when all AP are spent, a pass is intercepted, or the player calls `applyEndTurn`.
 - Passing flies over pieces. The first enemy on the path either intercepts (non-king) or concedes a goal (king).
 
 ## API Reference
