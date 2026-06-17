@@ -165,12 +165,14 @@ export const getValidPasses = (piece: Piece, boardState: BoardState): Position[]
         return pos.x >= 0 && pos.x < 9 && pos.y >= 0 && pos.y < 12
     }
 
-    // Keeper backpass rule: blocked keeper cannot be a pass destination
+    // Keeper backpass rule: blocked keeper cannot be a pass destination for TEAMMATES.
+    // Rivals are unaffected — a shot at the blocked keeper's square is a normal goal attempt.
     const blockedKeeper = boardState.keeperBlockedId
         ? boardState.pieces.find(p => p.id === boardState.keeperBlockedId)
         : null
     const isBlockedKeeperPos = (pos: Position): boolean =>
-        !!blockedKeeper && blockedKeeper.pos.x === pos.x && blockedKeeper.pos.y === pos.y
+        !!blockedKeeper && blockedKeeper.side === piece.side &&
+        blockedKeeper.pos.x === pos.x && blockedKeeper.pos.y === pos.y
 
     // Passes fly over all pieces — no blocking. The ball can reach any square on
     // the piece's movement ray (interceptions and goal shots are resolved in applyPass).

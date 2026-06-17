@@ -1,6 +1,6 @@
 {
   "name": "@scriptonita/chess-football-engine",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Canonical code implementation of the Chess.Football rules engine. Pure and framework-agnostic.",
   "type": "module",
   "license": "MIT",
@@ -31,6 +31,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "simulate": "tsx scripts/simulate.ts",
+    "train": "tsx scripts/train.ts",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
