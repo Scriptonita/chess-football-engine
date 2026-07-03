@@ -20,7 +20,8 @@ import { applyMove, applyPass, applyEndTurn } from '../src/game-engine'
 import { AIAction, AIPlayerScript } from '../src/types/ai-player'
 import { BoardState, Piece, PieceType, Position, Side } from '../src/types/game'
 
-const REGISTERED = ['claude-tactico', 'chatgpt-tactico', 'gemini-tikitaka', 'claude-fable']
+const REGISTERED = ['claude-tactico', 'chatgpt-tactico', 'gemini-tikitaka', 'claude-fable', 'claude-opus',
+    'engine-beginner', 'engine-intermediate', 'engine-advanced', 'engine-expert', 'engine-legendary']
 
 // ─────────────────────────────────────────────────────────
 // Initial board (mirrors simulate.ts / getInitialBoardState in the UI package)

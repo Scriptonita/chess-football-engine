@@ -223,4 +223,4 @@ export function runMatch(white: Player, black: Player, opts: MatchOptions = {}):
   return { white: playerOf.white.id, black: playerOf.black.id, score, winner, turns: turnCount, metrics: m }
 }
 
-export const ALL_SCRIPTS = ['claude-tactico', 'chatgpt-tactico', 'gemini-tikitaka', 'claude-fable'] as const
+export const ALL_SCRIPTS = ['claude-tactico', 'chatgpt-tactico', 'gemini-tikitaka', 'claude-fable', 'claude-opus'] as const

@@ -41,12 +41,20 @@ sound defence, punishes hung balls, takes its chances, and surprises.
 ## 2. Objective & game flow
 
 - A **goal** = the ball is passed so that the **rival king** is the first piece on
-  the ball's straight path. First side to `maxGoals` (championship: 3) wins.
-- Play alternates turns. On your turn you have **Action Points (AP)** — default 5.
-  Each move or pass costs 1 AP. Your turn ends when AP hit 0, when a pass is
-  intercepted, when you concede/score, or when you voluntarily end it.
-- After a goal, the board resets to a kickoff and the **conceding side serves**
-  (kicks off with the ball).
+  the ball's straight path. First side to the goal target wins.
+- The **goal target** (1–10, championship default 3) is fixed at match creation and
+  is **NOT present in `BoardState`** — your script *cannot* read how many goals
+  remain. Just play every turn to score and avoid conceding. There are **no draws**.
+- Play alternates turns. On your turn you have **Action Points (AP)**, which are
+  **configurable per game (1–5, default 5)**. Read the budget from
+  `boardState.actionPoints` (remaining this turn) and `boardState.maxActionPoints`
+  (the per-turn total) — **never assume a fixed 5**. Each move or pass costs 1 AP.
+  Your turn ends when AP hit 0, when a pass is intercepted, when you concede/score,
+  or when you voluntarily end it (`end_turn`, which forfeits remaining AP).
+- After a goal, the board resets to a kickoff and the **conceding side serves**: its
+  Queen starts with the ball at her central square, and the conceding team takes the
+  first turn. (Opening kickoff: in online PvP **white** serves first; in training vs
+  AI the side chosen by the human serves.)
 
 ---
 
@@ -63,49 +71,108 @@ sound defence, punishes hung balls, takes its chances, and surprises.
 
 ### Pieces & movement (each side: 1 King, 1 Queen, 2 Rooks, 2 Bishops, 2 Knights)
 - **King** (the goalkeeper): one square any direction, **confined to its own
-  penalty area**.
-- **Queen**: any distance, straight or diagonal (blocked by pieces).
-- **Rook**: any distance, orthogonal.
-- **Bishop**: any distance, diagonal.
-- **Knight**: L-shape jump, ignores intervening pieces.
+  penalty area** (it can never leave, even carrying the ball).
+- **Queen**: any distance, straight or diagonal (a **move** is blocked by the first
+  piece on its path — yours OR the enemy's).
+- **Rook**: any distance, orthogonal (move blocked by pieces).
+- **Bishop**: any distance, diagonal (move blocked by pieces).
+- **Knight**: L-shape jump (±2,±1)/(±1,±2), **ignores intervening pieces**.
 - **No non-king piece may enter its OWN penalty area.** (They may enter the enemy's
   — but see *offside*.)
+- **The rival king is untouchable**: no piece may *move* onto the rival king's
+  square. The king is reached **only by a pass** (= a goal). You cannot tackle a king.
+- **Each piece may move at most once per turn** (`hasMovedThisTurn`). A piece **may
+  both move AND pass** in the same turn (2 AP); several different pieces may move in
+  one turn.
 - Always derive legal targets from `getValidMoves(piece, board)` /
-  `getValidPasses(holder, board)`. Never invent moves.
+  `getValidPasses(holder, board)`. Never invent moves. A **move** stops at the first
+  piece in its path; a **pass** flies over them — do not reuse pass geometry to
+  generate moves (the #1 measured cause of discarded illegal actions).
+
+### Starting formation & piece IDs
+- IDs follow `{side}_{type}_{initialX}_{initialY}` and use the **initial** square, so
+  a piece keeps its ID after moving. Always read IDs from `boardState.pieces[].id`;
+  never reconstruct them from current positions.
+- **White** (attacks toward y=11): king `white_king_4_1` @{4,1}; queen
+  `white_queen_4_5` @{4,5}; rooks `white_rook_0_1`/`white_rook_8_1`; bishops
+  `white_bishop_3_2`/`white_bishop_5_2`; knights `white_knight_2_4`/`white_knight_6_4`.
+- **Black** (attacks toward y=0) mirrors it: king `black_king_4_10` @{4,10}; queen
+  `black_queen_4_6` @{4,6}; rooks `black_rook_0_10`/`black_rook_8_10`; bishops
+  `black_bishop_3_9`/`black_bishop_5_9`; knights `black_knight_2_7`/`black_knight_6_7`.
+- **Parameterise the attacking direction by `aiSide`.** White attacks up (rival king
+  at {4,10}), black attacks down (rival king at {4,1}). Hardcoding a direction is a
+  classic bug that makes the AI "play backwards".
 
 ### The ball
 - Exactly one ball. `Ball = { pos, holderId }`. `holderId` is the carrying piece's
   id, or `null` when the ball is **loose** on the board.
-- A piece **carries** the ball as it moves. A linear piece that crosses the ball's
-  square picks it up; a knight picks it up by landing on it.
+- A piece **carries** ("conducts") the ball as it moves — the ball travels to its
+  destination (1 AP, same as a normal move). The king can conduct but cannot leave its
+  area. (How a loose ball is captured is detailed below.)
 
 ### Passing, interception & goals
-- A pass flies in a straight line and **flies over pieces** — but the **first enemy
-  piece on the path resolves it**:
-  - if that first enemy is the **king** → **GOAL**.
-  - if it's any other enemy → **interception**: they seize the ball, your turn ends.
-- If a **teammate** is at the destination, they become the new holder. Otherwise the
-  ball lands loose at the target square.
+- A pass costs 1 AP; the holder kicks the ball without moving itself. Pass targets
+  follow the piece's movement directions but are **NOT pre-filtered by blocking** —
+  any square on the directional ray (to the board edge) is a valid target; the ball
+  flies over pieces.
+- **Your own pieces NEVER block or intercept a pass** — only the **first ENEMY
+  piece** on the path resolves it:
+  - if that first enemy is the **king** → **GOAL** (ball stops at the king's square,
+    turn ends). Aiming *past* the king on the same line is still a goal.
+  - if it's any other enemy → **interception**: the closest one seizes the ball and
+    your **turn ends immediately** (AP set to 0 — emit nothing after).
+- If a **teammate** is at the destination, **they become the new holder** (passing to
+  a teammate's square is the normal way to give them the ball — `getValidPasses` does
+  NOT exclude teammate squares). If the destination is empty, the ball lands **loose**
+  (`holderId: null`) there for either side to grab.
+- **Knight passes are the exception: they JUMP everything and can NEVER be
+  intercepted.** Only the exact L-destination is checked — it's a goal only if that
+  destination *is* the rival king's square; if it holds an enemy non-king piece, that
+  enemy receives the ball. This is why knights are the safest finishers.
+
+### Gaining possession (loose ball)
+- **Linear pieces** (king, queen, rook, bishop) capture a loose ball by **crossing or
+  landing on** its square as they move — they need only pass over it, and the ball
+  travels with them to their destination.
+- **Knights** capture only by **landing exactly** on the ball's square.
 
 ### Tackle (stealing the ball)
-- You may move a piece **onto an opponent who is holding the ball** *only if* there
-  is an adjacent empty square to displace them to. The ball transfers to you; the
-  opponent is shoved aside. `getValidMoves` already encodes this — a tackle shows up
-  as a legal move onto the holder's square.
+- You may move a piece **onto an opponent who is holding the ball** to steal it — but
+  **never onto the king** (untouchable). The displaced opponent is shoved to its
+  first free **orthogonal** square in the fixed priority **right → left → up → down**
+  (deterministic, so you can simulate exactly where it lands). The tackler's own
+  vacated square counts as free, so a piece orthogonally adjacent to the holder can
+  always tackle.
+- **If the holder is surrounded on all four orthogonal sides** (no free displacement
+  square), the tackle is **illegal**. `getValidMoves` already encodes all of this — a
+  legal tackle shows up as a move onto the holder's square.
 
 ### Offside (do NOT camp in the box with the ball)
-- If you **end your turn holding the ball with a non-king piece inside the enemy
-  penalty area**, it is **offside**: the ball is turned over to the rival king.
-- Consequence: once you carry the ball into the enemy area you must **shoot or pass
-  it out before the turn ends** — you cannot park it there.
+- If your turn **ends with a non-king piece holding the ball inside the enemy penalty
+  area**, it is **offside**: the ball is handed to the **defending king**. Checked at
+  **every** turn end (AP exhausted, voluntary, or forced), with **no warning turn**.
+- The offender is **whichever piece holds the ball when the turn ends — not the last
+  piece you moved.** Parking a teammate with the ball in the box while you spend the
+  remaining AP elsewhere is offside all the same. Your offside check must look at the
+  *final* simulated holder of the whole plan.
+- Consequence: once the ball is carried into the enemy area you must **shoot or pass
+  it out before the turn ends** — you cannot park it there. Only enter the box with
+  the ball when you will shoot the same turn.
 
 ### King / keeper special rules
-- **King possession penalty (`kingMustRelease`)**: if your king ends a turn holding
-  the ball, next turn `kingMustRelease === yourSide` — you must pass it away or it is
-  auto-released. Never let the king hoard the ball.
-- **Keeper block (`keeperBlockedId`)**: after the king passes the ball away, it
-  cannot *receive* a pass back until an opponent touches the ball. `getValidPasses`
-  already respects this.
+- **King possession penalty (`kingMustRelease`)**: the king may hold the ball for the
+  turn it receives it, but must release it before its next turn ends. If the king ends
+  a turn holding the ball, next turn `kingMustRelease === yourSide` — pass it away
+  **early** in the turn. If you haven't by the last AP, the engine **auto-releases** it
+  (consuming that final AP) to an adjacent empty square: the 4 orthogonals first, then
+  the 4 diagonals. Never let the king hoard the ball.
+- **Keeper block (`keeperBlockedId`)**: after the king passes the ball away,
+  `keeperBlockedId` is set to its id and it **cannot receive a pass back** until an
+  opponent touches the ball. The king's square is excluded from valid pass targets
+  **only for its own teammates** — a *rival* shot at a blocked keeper is still a normal
+  goal attempt and stays in `getValidPasses`. The block lifts as soon as an opponent
+  touches the ball in any way (interception, tackle, capturing the loose ball,
+  receiving it after an offside, or a goal). `getValidPasses` already respects this.
 
 ---
 
@@ -233,18 +300,29 @@ if/else scripts and is far stronger. Recommended design:
 Tune the knobs — **not** separate scripts — so the ladder is monotonic (each tier
 beats the one below, loses to the one above). Validated reference presets:
 
-| Tier | beamWidth | depth | combos | defense | temperature | mistakeProb |
-|---|---|---|---|---|---|---|
-| **beginner**     | 2  | 2 | off | 0 (ignores replies) | 220 | 0.35 |
-| **intermediate** | 4  | 3 | on  | 1 (no hung goals)   | 90  | 0.12 |
-| **advanced**     | 6  | 4 | on  | 2 (full)            | 35  | 0.03 |
-| **expert**       | 10 | 5 | on  | 2 (full)            | 12  | 0.00 |
+| Tier | beamWidth | depth | combos | defense | temperature | mistakeProb | lookahead |
+|---|---|---|---|---|---|---|---|
+| **beginner**     | 2  | 2 | off | 0 (ignores replies) | 220 | 0.35 | 0 |
+| **intermediate** | 4  | 3 | on  | 1 (no hung goals)   | 90  | 0.12 | 0 |
+| **advanced**     | 6  | 4 | on  | 2 (full)            | 35  | 0.03 | 0 |
+| **expert**       | 10 | 5 | on  | 2 (full)            | 8   | 0.00 | 1 |
+| **legendary**    | 14 | 5 | on  | 2 (full)            | 2   | 0.00 | 2 |
 
 - `defense`: 0 = ignores opponent replies (hangs balls/goals — easy to beat);
   1 = won't hand a direct goal; 2 = full combo + tackle awareness.
 - `depth` < 5 makes a tier *myopic* (plans fewer AP ahead, leaves AP unused).
-- Map the championship bracket to **beginner → intermediate → advanced → expert** so
-  the difficulty curve is real.
+- `temperature` is the main "beatability" dial: a strong, fixed eval at low temp
+  (legendary ≈ 2) plays near-optimally and punishes every human error; raise it
+  (expert ≈ 8) for sound-but-varied play a skilled human can exploit.
+- `lookahead` is **deep DEFENCE only** (turns of forced-goal veto). DO NOT run a
+  negamax over the static eval to drive move *choice*: with a well-tuned eval that
+  rewards calculated aggression, shallow minimax discounts beyond-horizon payoffs and
+  turns the engine passive — it stops scoring and gets *weaker* (measured: expert
+  20–0 → 0–10 vs the bar). Use lookahead purely to demote a plan that hands the
+  opponent a goal it can force over its next 1 turn (expert) or 2 turns (legendary).
+- Map the championship bracket to **beginner → intermediate → advanced → expert →
+  legendary** so the difficulty curve is real (legendary 92% vs the bar, never loses;
+  expert hard but beatable).
 
 ---
 
@@ -304,3 +382,15 @@ one-line `description` of its style (shown in the UI).
 - [ ] Sits on the right rung of the ladder (beats the tier below, loses to the one
       above) — confirmed with `ladder.ts`.
 - [ ] Per-turn cost is small (the reference core is ~20–40 ms/turn).
+
+---
+
+> **Provenance.** §3 (Complete rules) is cross-checked against `docs/AI_GAME_RULES.md`
+> (v2.4) and carries the same canonical mechanics: configurable AP (1–5), the
+> uninterceptable knight pass, tackle displacement priority (right→left→up→down) and
+> the surrounded-holder illegality, king auto-release order (orthogonals then
+> diagonals), the teammate-scoped keeper backpass block, offside on whichever piece
+> holds the ball at turn end, the unreadable goal target, and the full piece-ID
+> formation. Strategy (§5) and architecture (§6) mirror `docs/AI_PLAYER_PROMPT.md`
+> (the per-author prompt) and the empirical findings logged in `NOTES.md`. If any of
+> those source docs change, update this file in lockstep.

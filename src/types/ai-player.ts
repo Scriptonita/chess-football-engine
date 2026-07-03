@@ -13,7 +13,7 @@ export interface AIPlayerScript {
     description: string
     /** Emoji or icon identifier. */
     avatar: string
-    difficulty: 'beginner' | 'intermediate' | 'advanced' | 'expert'
+    difficulty: 'beginner' | 'intermediate' | 'advanced' | 'expert' | 'legendary'
     /** Trophy name awarded to a player who defeats this AI. */
     badgeName: string
     /** Lucide icon name for the badge. */
