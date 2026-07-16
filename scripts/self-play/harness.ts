@@ -13,34 +13,12 @@
 
 import { getValidMoves, getValidPasses, checkGoal } from '../../src/game-logic'
 import { applyMove, applyPass, applyEndTurn } from '../../src/game-engine'
+import { getInitialBoardState } from '../../src/initial-board'
 import { getAIScript } from '../../src/ai-players/registry'
-import type { BoardState, Side, Piece, PieceType } from '../../src/types/game'
+import type { BoardState, Side } from '../../src/types/game'
 import type { AIAction } from '../../src/types/ai-player'
 
 const opp = (s: Side): Side => (s === 'white' ? 'black' : 'white')
-
-// Initial board (mirrors getInitialBoardState in @scriptonita/chess-football-ui and
-// scripts/simulate.ts). Kept local so the harness has no app/UI dependency.
-function getInitialBoardState(servingSide: Side, currentScore = { white: 0, black: 0 }, maxActionPoints = 5): BoardState {
-  const pieces: Piece[] = []
-  const addPiece = (type: PieceType, side: Side, x: number, y: number) => {
-    pieces.push({ id: `${side}_${type}_${x}_${y}`, type, side, pos: { x, y }, hasMovedThisTurn: false })
-  }
-  addPiece('rook', 'white', 0, 1); addPiece('rook', 'white', 8, 1)
-  addPiece('bishop', 'white', 3, 2); addPiece('bishop', 'white', 5, 2)
-  addPiece('king', 'white', 4, 1); addPiece('queen', 'white', 4, 5)
-  addPiece('knight', 'white', 2, 4); addPiece('knight', 'white', 6, 4)
-  addPiece('rook', 'black', 0, 10); addPiece('rook', 'black', 8, 10)
-  addPiece('bishop', 'black', 3, 9); addPiece('bishop', 'black', 5, 9)
-  addPiece('king', 'black', 4, 10); addPiece('queen', 'black', 4, 6)
-  addPiece('knight', 'black', 2, 7); addPiece('knight', 'black', 6, 7)
-  const servingQueen = pieces.find((p) => p.side === servingSide && p.type === 'queen')!
-  return {
-    pieces, ball: { pos: { ...servingQueen.pos }, holderId: servingQueen.id },
-    score: currentScore, actionPoints: maxActionPoints, maxActionPoints,
-    turn: servingSide, moveHistory: [], turnNumber: 1,
-  }
-}
 
 /** Either a registered engine script id, or an inline prototype (e.g. our strong AI). */
 export type Player = string | { id: string; play: (b: BoardState, side: Side) => AIAction[] }

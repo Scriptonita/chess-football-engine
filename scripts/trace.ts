@@ -6,24 +6,9 @@
 import { getAIScript } from '../src/ai-players/registry'
 import { getValidMoves, getValidPasses } from '../src/game-logic'
 import { applyMove, applyPass, applyEndTurn } from '../src/game-engine'
+import { getInitialBoardState as initial } from '../src/initial-board'
 import { AIPlayerScript } from '../src/types/ai-player'
-import { BoardState, Piece, PieceType, Side } from '../src/types/game'
-
-function initial(servingSide: Side, score = { white: 0, black: 0 }, ap = 5): BoardState {
-    const pieces: Piece[] = []
-    const add = (type: PieceType, side: Side, x: number, y: number) =>
-        pieces.push({ id: `${side}_${type}_${x}_${y}`, type, side, pos: { x, y }, hasMovedThisTurn: false })
-    add('rook', 'white', 0, 1); add('rook', 'white', 8, 1)
-    add('bishop', 'white', 3, 2); add('bishop', 'white', 5, 2)
-    add('king', 'white', 4, 1); add('queen', 'white', 4, 5)
-    add('knight', 'white', 2, 4); add('knight', 'white', 6, 4)
-    add('rook', 'black', 0, 10); add('rook', 'black', 8, 10)
-    add('bishop', 'black', 3, 9); add('bishop', 'black', 5, 9)
-    add('king', 'black', 4, 10); add('queen', 'black', 4, 6)
-    add('knight', 'black', 2, 7); add('knight', 'black', 6, 7)
-    const q = pieces.find(p => p.side === servingSide && p.type === 'queen')!
-    return { pieces, ball: { pos: { ...q.pos }, holderId: q.id }, score, actionPoints: ap, maxActionPoints: ap, turn: servingSide, moveHistory: [], turnNumber: 1 }
-}
+import { BoardState, Side } from '../src/types/game'
 
 const other = (s: Side): Side => (s === 'white' ? 'black' : 'white')
 const fmt = (p: { x: number; y: number }) => `(${p.x},${p.y})`

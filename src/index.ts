@@ -15,6 +15,9 @@ export * from './game-logic'
 // Game engine (state transitions)
 export * from './game-engine'
 
+// Canonical initial board (single source of truth for the kickoff position)
+export * from './initial-board'
+
 // Board notation
 export * from './notation'
 

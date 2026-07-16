@@ -72,14 +72,14 @@ A goal is scored when a **pass/shot** reaches (or passes through) the **rival ki
 ```
 y=11  [ ][ ][ ][ ][ ][ ][ ][ ][ ]   ← Black area (back row)
 y=10  [R][ ][ ][ ][K][ ][ ][ ][R]   ← Black King (target for white) + Black rooks
-y=9   [ ][ ][ ][B][ ][B][ ][ ][ ]   ← Black bishops
+y=9   [ ][ ][ ][B][ ][N][ ][ ][ ]   ← Black bishop (D10) + knight (F10)
 y=8   [ ][ ][ ][ ][ ][ ][ ][ ][ ]
-y=7   [ ][ ][N][ ][ ][ ][N][ ][ ]   ← Black knights
+y=7   [ ][ ][N][ ][ ][ ][B][ ][ ]   ← Black knight (C8) + bishop (G8)
 y=6   [ ][ ][ ][ ][Q][ ][ ][ ][ ]   ← Black queen ── center ──
 y=5   [ ][ ][ ][ ][Q][ ][ ][ ][ ]   ← White queen ── center ──
-y=4   [ ][ ][N][ ][ ][ ][N][ ][ ]   ← White knights
+y=4   [ ][ ][N][ ][ ][ ][B][ ][ ]   ← White knight (C5) + bishop (G5)
 y=3   [ ][ ][ ][ ][ ][ ][ ][ ][ ]
-y=2   [ ][ ][ ][B][ ][B][ ][ ][ ]   ← White bishops
+y=2   [ ][ ][ ][B][ ][N][ ][ ][ ]   ← White bishop (D3) + knight (F3)
 y=1   [R][ ][ ][ ][K][ ][ ][ ][R]   ← White King (target for black) + White rooks
 y=0   [ ][ ][ ][ ][ ][ ][ ][ ][ ]   ← White area (back row)
        0  1  2  3  4  5  6  7  8
@@ -97,15 +97,17 @@ Each side has **8 pieces** with chess-based movement:
 | King (K) | 1 | **Goal / Target** — confined to own area | E2 → {x:4, y:1} |
 | Queen (Q) | 1 | Midfielder | E6 → {x:4, y:5} |
 | Rook (R) | 2 | Lateral defenders | A2, I2 → {x:0, y:1}, {x:8, y:1} |
-| Bishop (B) | 2 | Central defenders | D3, F3 → {x:3, y:2}, {x:5, y:2} |
-| Knight (N) | 2 | Strikers/Forwards | C5, G5 → {x:2, y:4}, {x:6, y:4} |
+| Bishop (B) | 2 | Central defenders | D3, G5 → {x:3, y:2}, {x:6, y:4} |
+| Knight (N) | 2 | Strikers/Forwards | C5, F3 → {x:2, y:4}, {x:5, y:2} |
+
+The right-hand bishop and knight are swapped (relative to a symmetric layout) so each side has one light-squared and one dark-squared bishop — a 9-wide board can't achieve that with a same-rank symmetric pair.
 
 Black's pieces mirror white's: same x positions, y positions mirrored:
 - Black King at {4, 10}
 - Black Rooks at {0, 10}, {8, 10}
-- Black Bishops at {3, 9}, {5, 9}
+- Black Bishops at {3, 9}, {6, 7}
 - Black Queen at {4, 6}
-- Black Knights at {2, 7}, {6, 7}
+- Black Knights at {2, 7}, {5, 9}
 
 ### Movement Rules
 
@@ -302,17 +304,17 @@ Piece IDs follow the pattern: `{side}_{type}_{initialX}_{initialY}`
 
 **White pieces:**
 - `white_rook_0_1`, `white_rook_8_1`
-- `white_bishop_3_2`, `white_bishop_5_2`
+- `white_bishop_3_2`, `white_bishop_6_4`
 - `white_king_4_1`
 - `white_queen_4_5`
-- `white_knight_2_4`, `white_knight_6_4`
+- `white_knight_2_4`, `white_knight_5_2`
 
 **Black pieces:**
 - `black_rook_0_10`, `black_rook_8_10`
-- `black_bishop_3_9`, `black_bishop_5_9`
+- `black_bishop_3_9`, `black_bishop_6_7`
 - `black_king_4_10`
 - `black_queen_4_6`
-- `black_knight_2_7`, `black_knight_6_7`
+- `black_knight_2_7`, `black_knight_5_9`
 
 ---
 

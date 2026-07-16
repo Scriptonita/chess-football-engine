@@ -15,53 +15,12 @@
 import { getAIScript } from '../src/ai-players/registry'
 import { getValidMoves, getValidPasses } from '../src/game-logic'
 import { applyMove, applyPass, applyEndTurn } from '../src/game-engine'
+import { getInitialBoardState } from '../src/initial-board'
 import { AIPlayerScript } from '../src/types/ai-player'
-import { BoardState, Piece, PieceType, Side } from '../src/types/game'
+import { BoardState, Side } from '../src/types/game'
 
 const REGISTERED = ['claude-tactico', 'chatgpt-tactico', 'gemini-tikitaka', 'claude-fable', 'claude-opus',
     'engine-beginner', 'engine-intermediate', 'engine-advanced', 'engine-expert', 'engine-legendary']
-
-// ─────────────────────────────────────────────────────────
-// Initial board (mirrors getInitialBoardState in @scriptonita/chess-football-ui)
-// ─────────────────────────────────────────────────────────
-
-function getInitialBoardState(servingSide: Side, currentScore = { white: 0, black: 0 }, maxActionPoints = 5): BoardState {
-    const pieces: Piece[] = []
-    const addPiece = (type: PieceType, side: Side, x: number, y: number) => {
-        pieces.push({ id: `${side}_${type}_${x}_${y}`, type, side, pos: { x, y }, hasMovedThisTurn: false })
-    }
-
-    addPiece('rook',   'white', 0, 1)
-    addPiece('rook',   'white', 8, 1)
-    addPiece('bishop', 'white', 3, 2)
-    addPiece('bishop', 'white', 5, 2)
-    addPiece('king',   'white', 4, 1)
-    addPiece('queen',  'white', 4, 5)
-    addPiece('knight', 'white', 2, 4)
-    addPiece('knight', 'white', 6, 4)
-
-    addPiece('rook',   'black', 0, 10)
-    addPiece('rook',   'black', 8, 10)
-    addPiece('bishop', 'black', 3, 9)
-    addPiece('bishop', 'black', 5, 9)
-    addPiece('king',   'black', 4, 10)
-    addPiece('queen',  'black', 4, 6)
-    addPiece('knight', 'black', 2, 7)
-    addPiece('knight', 'black', 6, 7)
-
-    const servingQueen = pieces.find(p => p.side === servingSide && p.type === 'queen')!
-
-    return {
-        pieces,
-        ball: { pos: { ...servingQueen.pos }, holderId: servingQueen.id },
-        score: currentScore,
-        actionPoints: maxActionPoints,
-        maxActionPoints,
-        turn: servingSide,
-        moveHistory: [],
-        turnNumber: 1,
-    }
-}
 
 // ─────────────────────────────────────────────────────────
 // Per-side stats
