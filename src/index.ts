@@ -20,3 +20,6 @@ export * from './notation'
 
 // AI opponents (pure deterministic scripts) + registry
 export * from './ai-players/registry'
+
+// Configurable AI engine: difficulty tiers, championship roster, factory functions
+export * from './ai-engine'

@@ -19,16 +19,16 @@ describe('getAIScript', () => {
         (id) => { expectValidScript(id) }
     )
 
-    it('claude-tactico has difficulty advanced', () => {
-        expect(getAIScript('claude-tactico')!.difficulty).toBe('advanced')
+    it('claude-tactico has difficulty expert', () => {
+        expect(getAIScript('claude-tactico')!.difficulty).toBe('expert')
     })
 
     it('chatgpt-tactico has difficulty advanced', () => {
         expect(getAIScript('chatgpt-tactico')!.difficulty).toBe('advanced')
     })
 
-    it('gemini-tikitaka has difficulty advanced', () => {
-        expect(getAIScript('gemini-tikitaka')!.difficulty).toBe('advanced')
+    it('gemini-tikitaka has difficulty expert', () => {
+        expect(getAIScript('gemini-tikitaka')!.difficulty).toBe('expert')
     })
 
     it('returns null for an unknown script_id', () => {

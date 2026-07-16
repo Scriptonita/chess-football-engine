@@ -1,19 +1,18 @@
-// Claude Sonnet 4.6 — expert-strength Chess Football AI.
+// Claude Opus — a single maximum-strength Chess.Football player.
 //
-// Improvements over Claude Opus:
-//   1. 3-step combo finder (pass→move→shoot, move→pass→shoot) — the canonical
-//      goal sequence (pass to knight → knight repositions → knight shoots) was
-//      missing from the 2-step combo search and is now detected explicitly.
-//   2. Knight L-distance threats counted in shootingThreats and evaluation —
-//      Opus evaluated only linear shooting lanes; a knight one L-move from the
-//      rival king is an immediate uninterceptable shot threat and now scores +200.
-//   3. Wider beam (12 vs 10) and lower temperature (6 vs 8) for stronger, still
-//      non-deterministic selection.
-//   4. Board-seeded PRNG with per-instance nonce keeps play varied across sessions.
+// Strategy in three sentences: it runs a full-turn BEAM SEARCH (up to all 5 AP) over
+// a faithful in-script copy of the engine, scoring every resulting board with a
+// positional EVALUATION (goal diff, possession, ball advancement, shooting lanes for
+// and against, king safety, loose-ball race, staying home on defence) and an explicit
+// GOAL-COMBO finder for forced move→shoot / pass→shoot scores. A BLUNDER FILTER
+// penalises leaving the rival an immediate goal, a one-move goal, or our carrier
+// exposed to a tackle. Plans are chosen by low-temperature SOFTMAX over their scores
+// (board-seeded RNG), so it plays near-optimally yet never repeats the identical line
+// in the identical position — in particular the kickoff after a goal varies.
 //
-// Engine replica (getValidMoves/getValidPasses/applyMove/applyPass/applyEndTurn)
-// is kept identical to the canonical Opus version so every action is validated
-// against a correctly simulated state (rule §2b).
+// Self-contained: imports only ../types/game and re-implements the engine's pure
+// helpers (getValidMoves/getValidPasses/applyMove/applyPass/applyEndTurn) exactly, so
+// every action is planned against a correctly simulated state (sections 2b/5/5c).
 
 import { BoardState, Side, Position, Piece } from '../types/game'
 
@@ -50,10 +49,8 @@ const KNIGHT_JUMPS: ReadonlyArray<readonly [number, number]> = [
 const opp = (s: Side): Side => (s === 'white' ? 'black' : 'white')
 const goalRow = (side: Side): number => (side === 'white' ? BOARD_H - 1 : 0)
 const inBoard = (x: number, y: number): boolean => x >= 0 && x < BOARD_W && y >= 0 && y < BOARD_H
-const isLinearPiece = (t: PieceType): boolean =>
-  t === 'rook' || t === 'bishop' || t === 'queen' || t === 'king'
-const cheby = (a: Position, b: Position): number =>
-  Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y))
+const isLinearPiece = (t: PieceType): boolean => t === 'rook' || t === 'bishop' || t === 'queen' || t === 'king'
+const cheby = (a: Position, b: Position): number => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y))
 
 function isInOwnArea(pos: Position, side: Side): boolean {
   if (pos.x < 2 || pos.x > 6) return false
@@ -66,6 +63,7 @@ function isInEnemyArea(pos: Position, side: Side): boolean {
 
 // ============================================================================
 // Engine replica — getValidMoves / getValidPasses
+// (mirrors src/game-logic.ts exactly: moves are blocked, passes fly over)
 // ============================================================================
 
 function getValidMoves(piece: Piece, board: BoardState): Position[] {
@@ -85,8 +83,7 @@ function getValidMoves(piece: Piece, board: BoardState): Position[] {
       ? isInOwnArea({ x: px, y: py }, piece.side)
       : !isInOwnArea({ x: px, y: py }, piece.side)
 
-  // Tackle legal only if displaced holder has at least one free orthogonal square.
-  // Tackler's own departing square counts as free.
+  // The displaced holder needs a free orthogonal square; the tackler's own square counts as free.
   const canDisplace = (hx: number, hy: number): boolean =>
     ([[hx + 1, hy], [hx - 1, hy], [hx, hy + 1], [hx, hy - 1]] as Array<[number, number]>)
       .filter(([nx, ny]) => inBoard(nx, ny))
@@ -124,8 +121,7 @@ function getValidMoves(piece: Piece, board: BoardState): Position[] {
           if (dx === 0 && dy === 0) continue
           const nx = x + dx
           const ny = y + dy
-          if (inBoard(nx, ny) && isAreaValid(nx, ny) && isValidDest(nx, ny))
-            moves.push({ x: nx, y: ny })
+          if (inBoard(nx, ny) && isAreaValid(nx, ny) && isValidDest(nx, ny)) moves.push({ x: nx, y: ny })
         }
       }
       break
@@ -143,8 +139,7 @@ function getValidMoves(piece: Piece, board: BoardState): Position[] {
       for (const [dx, dy] of KNIGHT_JUMPS) {
         const nx = x + dx
         const ny = y + dy
-        if (inBoard(nx, ny) && isAreaValid(nx, ny) && isValidDest(nx, ny))
-          moves.push({ x: nx, y: ny })
+        if (inBoard(nx, ny) && isAreaValid(nx, ny) && isValidDest(nx, ny)) moves.push({ x: nx, y: ny })
       }
       break
   }
@@ -158,12 +153,9 @@ function getValidPasses(piece: Piece, board: BoardState): Position[] {
   const blockedKeeper = board.keeperBlockedId
     ? board.pieces.find((p) => p.id === board.keeperBlockedId)
     : undefined
-  // Only the OWN blocked keeper's square is excluded; rival blocked keeper is a valid shot.
+  // Only the OWN blocked keeper's square is excluded; a blocked RIVAL keeper is a valid shot.
   const isBlockedKeeperPos = (px: number, py: number): boolean =>
-    !!blockedKeeper &&
-    blockedKeeper.side === piece.side &&
-    blockedKeeper.pos.x === px &&
-    blockedKeeper.pos.y === py
+    !!blockedKeeper && blockedKeeper.side === piece.side && blockedKeeper.pos.x === px && blockedKeeper.pos.y === py
 
   const addLine = (dx: number, dy: number): void => {
     let cx = x + dx
@@ -209,9 +201,10 @@ function getValidPasses(piece: Piece, board: BoardState): Position[] {
 
 // ============================================================================
 // Engine replica — applyMove / applyPass / applyEndTurn
+// (mirrors src/game-engine.ts; move history & timestamps dropped — never read)
 // ============================================================================
 
-/** All squares strictly between from and to, plus to itself (excludes from). */
+/** Squares strictly between `from` and `to`, plus `to` (excludes `from`). */
 function getPath(from: Position, to: Position): Position[] {
   const path: Position[] = []
   const dx = Math.sign(to.x - from.x)
@@ -230,18 +223,15 @@ function getPath(from: Position, to: Position): Position[] {
 }
 
 function findAdjacentEmptySquare(pos: Position, pieces: Piece[]): Position | null {
-  // Orthogonals first (rule §7a auto-release order), then diagonals
   const candidates: Position[] = [
     { x: pos.x, y: pos.y + 1 }, { x: pos.x, y: pos.y - 1 },
     { x: pos.x + 1, y: pos.y }, { x: pos.x - 1, y: pos.y },
     { x: pos.x + 1, y: pos.y + 1 }, { x: pos.x - 1, y: pos.y - 1 },
     { x: pos.x + 1, y: pos.y - 1 }, { x: pos.x - 1, y: pos.y + 1 },
   ]
-  return (
-    candidates.find(
-      (n) => inBoard(n.x, n.y) && !pieces.some((p) => p.pos.x === n.x && p.pos.y === n.y),
-    ) ?? null
-  )
+  return candidates.find((n) =>
+    inBoard(n.x, n.y) && !pieces.some((p) => p.pos.x === n.x && p.pos.y === n.y)
+  ) ?? null
 }
 
 function resetPieceFlags(pieces: Piece[]): Piece[] {
@@ -272,9 +262,7 @@ function computeKingTurnEndFlags(
   if (prevKingMustRelease === departingSide) {
     const releasePos = findAdjacentEmptySquare(king.pos, pieces)
     return {
-      ball: releasePos
-        ? { pos: releasePos, holderId: null }
-        : { ...ball, holderId: null },
+      ball: releasePos ? { pos: releasePos, holderId: null } : { ...ball, holderId: null },
       kingMustRelease: undefined,
       keeperBlockedId: king.id,
     }
@@ -295,16 +283,13 @@ function applyOffsideAtTurnEnd(
 ): OffsideResult {
   if (!ball.holderId) return { ball, keeperBlockedId }
   const holder = pieces.find((p) => p.id === ball.holderId)
-  if (!holder || holder.type === 'king' || holder.side !== departingSide)
-    return { ball, keeperBlockedId }
+  if (!holder || holder.type === 'king' || holder.side !== departingSide) return { ball, keeperBlockedId }
   if (!isInEnemyArea(holder.pos, departingSide)) return { ball, keeperBlockedId }
   const rivalKing = pieces.find((p) => p.type === 'king' && p.side === opp(departingSide))
   if (!rivalKing) return { ball, keeperBlockedId }
   return {
     ball: { pos: { ...rivalKing.pos }, holderId: rivalKing.id },
-    keeperBlockedId: keeperBlockedId?.startsWith(departingSide + '_')
-      ? undefined
-      : keeperBlockedId,
+    keeperBlockedId: keeperBlockedId?.startsWith(departingSide + '_') ? undefined : keeperBlockedId,
   }
 }
 
@@ -319,26 +304,16 @@ function applyMove(board: BoardState, pieceId: string, to: Position): MoveResult
   let moveType: 'move' | 'tackle' = 'move'
   let keeperBlockedId = board.keeperBlockedId
 
-  const rivalAtDest = board.pieces.find(
-    (p) => p.pos.x === to.x && p.pos.y === to.y && p.side !== piece.side,
-  )
+  const rivalAtDest = board.pieces.find((p) => p.pos.x === to.x && p.pos.y === to.y && p.side !== piece.side)
   let rivalNewPos: Position | null = null
-
   if (rivalAtDest && ball.holderId === rivalAtDest.id) {
     moveType = 'tackle'
-    // Displacement priority: right → left → up → down
-    const neighbors = (
-      [[to.x + 1, to.y], [to.x - 1, to.y], [to.x, to.y + 1], [to.x, to.y - 1]] as Array<[number, number]>
-    )
+    const neighbors = ([[to.x + 1, to.y], [to.x - 1, to.y], [to.x, to.y + 1], [to.x, to.y - 1]] as Array<[number, number]>)
       .filter(([nx, ny]) => inBoard(nx, ny))
-      .filter(
-        ([nx, ny]) =>
-          !board.pieces.some((p) => p.pos.x === nx && p.pos.y === ny && p.id !== pieceId),
-      )
+      .filter(([nx, ny]) => !board.pieces.some((p) => p.pos.x === nx && p.pos.y === ny && p.id !== pieceId))
     if (neighbors.length > 0) rivalNewPos = { x: neighbors[0][0], y: neighbors[0][1] }
     ball = { holderId: piece.id, pos: to }
-    if (keeperBlockedId && !keeperBlockedId.startsWith(piece.side + '_'))
-      keeperBlockedId = undefined
+    if (keeperBlockedId && !keeperBlockedId.startsWith(piece.side + '_')) keeperBlockedId = undefined
   }
 
   const newPieces = board.pieces.map((p) => {
@@ -351,8 +326,7 @@ function applyMove(board: BoardState, pieceId: string, to: Position): MoveResult
     const wasLoose = !ball.holderId
     if (!ball.holderId && isLinearPiece(piece.type)) {
       const path = getPath(piece.pos, to)
-      if (path.some((pp) => pp.x === ball.pos.x && pp.y === ball.pos.y))
-        ball = { holderId: piece.id, pos: to }
+      if (path.some((pp) => pp.x === ball.pos.x && pp.y === ball.pos.y)) ball = { holderId: piece.id, pos: to }
     } else if (!ball.holderId && piece.type === 'knight') {
       if (ball.pos.x === to.x && ball.pos.y === to.y) ball = { holderId: piece.id, pos: to }
     } else if (ball.holderId === pieceId) {
@@ -360,30 +334,21 @@ function applyMove(board: BoardState, pieceId: string, to: Position): MoveResult
     } else if (!ball.holderId && ball.pos.x === to.x && ball.pos.y === to.y) {
       ball = { holderId: piece.id, pos: to }
     }
-    if (
-      wasLoose &&
-      ball.holderId === piece.id &&
-      keeperBlockedId &&
-      !keeperBlockedId.startsWith(piece.side + '_')
-    )
+    if (wasLoose && ball.holderId === piece.id && keeperBlockedId && !keeperBlockedId.startsWith(piece.side + '_')) {
       keeperBlockedId = undefined
+    }
   }
 
   const nextAP = board.actionPoints - 1
   const kingAfterMove = newPieces.find((p) => p.type === 'king' && p.side === board.turn)
   const kingPenalty =
-    nextAP === 1 &&
-    board.kingMustRelease === board.turn &&
-    !!kingAfterMove &&
-    ball.holderId === kingAfterMove.id
+    nextAP === 1 && board.kingMustRelease === board.turn && !!kingAfterMove && ball.holderId === kingAfterMove.id
   const isTurnOver = nextAP === 0 || kingPenalty
   const nextTurn = isTurnOver ? opp(board.turn) : board.turn
   const turnNumber = board.turnNumber ?? 1
 
   const kingFlags: KingFlags = isTurnOver
-    ? computeKingTurnEndFlags(
-        board.kingMustRelease, keeperBlockedId, board.turn, newPieces, ball,
-      )
+    ? computeKingTurnEndFlags(board.kingMustRelease, keeperBlockedId, board.turn, newPieces, ball)
     : { ball, kingMustRelease: board.kingMustRelease, keeperBlockedId }
   const offside: OffsideResult = isTurnOver
     ? applyOffsideAtTurnEnd(board.turn, newPieces, kingFlags.ball, kingFlags.keeperBlockedId)
@@ -420,11 +385,7 @@ function applyPass(board: BoardState, to: Position): PassResult {
 
   const path = holder.type !== 'knight' ? getPath(holder.pos, to) : [to]
   const firstEnemy = path
-    .map((pos) =>
-      board.pieces.find(
-        (p) => p.pos.x === pos.x && p.pos.y === pos.y && p.side !== holder.side,
-      ),
-    )
+    .map((pos) => board.pieces.find((p) => p.pos.x === pos.x && p.pos.y === pos.y && p.side !== holder.side))
     .find(Boolean)
 
   if (firstEnemy) {
@@ -436,14 +397,11 @@ function applyPass(board: BoardState, to: Position): PassResult {
       ball = { holderId: firstEnemy.id, pos: firstEnemy.pos }
       forcedTurnEnd = true
     }
-    if (keeperBlockedId && !keeperBlockedId.startsWith(firstEnemy.side + '_'))
-      keeperBlockedId = undefined
+    if (keeperBlockedId && !keeperBlockedId.startsWith(firstEnemy.side + '_')) keeperBlockedId = undefined
   }
 
   if (!forcedTurnEnd) {
-    const teammateAtDest = board.pieces.find(
-      (p) => p.pos.x === to.x && p.pos.y === to.y && p.side === holder.side,
-    )
+    const teammateAtDest = board.pieces.find((p) => p.pos.x === to.x && p.pos.y === to.y && p.side === holder.side)
     ball = { pos: to, holderId: teammateAtDest ? teammateAtDest.id : null }
     if (holder.type === 'king') {
       keeperBlockedId = holder.id
@@ -457,9 +415,7 @@ function applyPass(board: BoardState, to: Position): PassResult {
   const turnNumber = board.turnNumber ?? 1
 
   const kingFlags: KingFlags = isTurnOver
-    ? computeKingTurnEndFlags(
-        kingMustRelease, keeperBlockedId, board.turn, board.pieces, ball,
-      )
+    ? computeKingTurnEndFlags(kingMustRelease, keeperBlockedId, board.turn, board.pieces, ball)
     : { ball, kingMustRelease, keeperBlockedId }
   const offside: OffsideResult = isTurnOver
     ? applyOffsideAtTurnEnd(board.turn, board.pieces, kingFlags.ball, kingFlags.keeperBlockedId)
@@ -483,16 +439,10 @@ function applyPass(board: BoardState, to: Position): PassResult {
 
 function applyEndTurn(board: BoardState): BoardState {
   const kingFlags = computeKingTurnEndFlags(
-    board.kingMustRelease,
-    board.keeperBlockedId,
-    board.turn,
-    board.pieces,
-    board.ball,
+    board.kingMustRelease, board.keeperBlockedId, board.turn, board.pieces, board.ball,
   )
   const turnNumber = board.turnNumber ?? 1
-  const offside = applyOffsideAtTurnEnd(
-    board.turn, board.pieces, kingFlags.ball, kingFlags.keeperBlockedId,
-  )
+  const offside = applyOffsideAtTurnEnd(board.turn, board.pieces, kingFlags.ball, kingFlags.keeperBlockedId)
   return {
     ...board,
     turn: opp(board.turn),
@@ -517,19 +467,12 @@ interface AIConfig {
   temperature: number
 }
 
-const CFG: AIConfig = {
-  beamWidth: 12,  // wider than Opus (10) for more thorough search
-  depth: 5,
-  combos: true,
-  defense: 2,
-  temperature: 6, // lower than Opus (8): stronger, still non-deterministic
-}
+// Maximum strength: wide beam, full-turn depth, goal combos on, full defensive
+// awareness, low (not zero) temperature so it varies only between near-optimal lines.
+const CFG: AIConfig = { beamWidth: 10, depth: 5, combos: true, defense: 2, temperature: 8 }
 
-/** Direct goal this turn for `side`, or null. */
-function immediateGoal(
-  board: BoardState,
-  side: Side,
-): { to: Position; pieceId: string } | null {
+/** A legal scoring pass for `side` from the current position, or null. */
+function immediateGoal(board: BoardState, side: Side): { to: Position; pieceId: string } | null {
   const holder = board.pieces.find((p) => p.id === board.ball.holderId)
   if (!holder || holder.side !== side) return null
   for (const t of getValidPasses(holder, board)) {
@@ -538,27 +481,15 @@ function immediateGoal(
   return null
 }
 
-/**
- * Count shooting threats for `side`:
- * - Linear pieces with a clear ray to the rival king
- * - Knights at exactly L-distance from the rival king (uninterceptable shot)
- */
+/** How many of `side`'s pieces have a clear straight/diagonal shooting line to the rival king. */
 function shootingThreats(board: BoardState, side: Side): number {
   const rivalKing = board.pieces.find((p) => p.type === 'king' && p.side !== side)
   if (!rivalKing) return 0
   let n = 0
   for (const p of board.pieces) {
     if (p.side !== side || p.type === 'king') continue
-    if (p.type === 'knight') {
-      const dx = Math.abs(p.pos.x - rivalKing.pos.x)
-      const dy = Math.abs(p.pos.y - rivalKing.pos.y)
-      if ((dx === 1 && dy === 2) || (dx === 2 && dy === 1)) n++
-      continue
-    }
-    // Linear piece: must be on same row, column, or diagonal with clear path
     const aligned =
-      p.pos.x === rivalKing.pos.x ||
-      p.pos.y === rivalKing.pos.y ||
+      p.pos.x === rivalKing.pos.x || p.pos.y === rivalKing.pos.y ||
       Math.abs(rivalKing.pos.x - p.pos.x) === Math.abs(rivalKing.pos.y - p.pos.y)
     if (!aligned) continue
     const dx = Math.sign(rivalKing.pos.x - p.pos.x)
@@ -567,10 +498,7 @@ function shootingThreats(board: BoardState, side: Side): number {
     let cy = p.pos.y + dy
     let clear = true
     while (!(cx === rivalKing.pos.x && cy === rivalKing.pos.y)) {
-      if (board.pieces.some((q) => q.pos.x === cx && q.pos.y === cy)) {
-        clear = false
-        break
-      }
+      if (board.pieces.some((q) => q.pos.x === cx && q.pos.y === cy)) { clear = false; break }
       cx += dx
       cy += dy
     }
@@ -580,17 +508,17 @@ function shootingThreats(board: BoardState, side: Side): number {
 }
 
 function evaluate(board: BoardState, side: Side): number {
+  const me = side
   const you = opp(side)
-  const myKing = board.pieces.find((p) => p.type === 'king' && p.side === side)
+  const myKing = board.pieces.find((p) => p.type === 'king' && p.side === me)
   const yourKing = board.pieces.find((p) => p.type === 'king' && p.side === you)
   let score = 0
 
-  // Goal difference dominates
-  score += (board.score[side] - board.score[you]) * 10000
+  score += (board.score[me] - board.score[you]) * 10000
 
   const holder = board.pieces.find((p) => p.id === board.ball.holderId)
   if (holder) {
-    const mine = holder.side === side
+    const mine = holder.side === me
     score += mine ? 140 : -140
     const dist = Math.abs(holder.pos.y - goalRow(holder.side))
     score += (BOARD_H - 1 - dist) * (mine ? 9 : -9)
@@ -602,7 +530,7 @@ function evaluate(board: BoardState, side: Side): number {
     for (const p of board.pieces) {
       if (p.type === 'king') continue
       const d = cheby(p.pos, ball)
-      if (p.side === side) myMin = Math.min(myMin, d)
+      if (p.side === me) myMin = Math.min(myMin, d)
       else yourMin = Math.min(yourMin, d)
     }
     score += (yourMin - myMin) * 26
@@ -610,32 +538,18 @@ function evaluate(board: BoardState, side: Side): number {
     if (myKing && cheby(ball, myKing.pos) <= 4 && yourMin <= myMin) score -= 120
   }
 
-  // Shooting threat counts (improved: knights included)
-  score += shootingThreats(board, side) * 48
-  score -= shootingThreats(board, you) * 55
-
-  // Knight at exact L-distance from rival king = immediate uninterceptable shot
-  for (const p of board.pieces) {
-    if (p.type !== 'knight') continue
-    const rk = board.pieces.find((q) => q.type === 'king' && q.side !== p.side)
-    if (!rk) continue
-    const dx = Math.abs(p.pos.x - rk.pos.x)
-    const dy = Math.abs(p.pos.y - rk.pos.y)
-    if ((dx === 1 && dy === 2) || (dx === 2 && dy === 1)) {
-      score += p.side === side ? 200 : -200
-    }
-  }
-
+  score += shootingThreats(board, me) * 45
+  score -= shootingThreats(board, you) * 52
   if (immediateGoal(board, you)) score -= 650
-  if (board.kingMustRelease === side) score -= 160
+  if (board.kingMustRelease === me) score -= 160
 
   const cx = (BOARD_W - 1) / 2
-  const weHoldBall = holder?.side === side
+  const weHoldBall = holder?.side === me
   for (const p of board.pieces) {
     if (p.type === 'king') continue
-    score += (p.side === side ? -1 : 1) * -Math.abs(p.pos.x - cx)
-    if (p.side === side && !weHoldBall) {
-      const intoEnemy = BOARD_H - 1 - Math.abs(p.pos.y - goalRow(side))
+    score += (p.side === me ? -1 : 1) * -Math.abs(p.pos.x - cx)
+    if (p.side === me && !weHoldBall) {
+      const intoEnemy = BOARD_H - 1 - Math.abs(p.pos.y - goalRow(me))
       if (intoEnemy > 7) score -= (intoEnemy - 7) * 6
     }
   }
@@ -646,7 +560,7 @@ function evaluate(board: BoardState, side: Side): number {
 }
 
 // ============================================================================
-// Blunder filter
+// Opponent-reply blunder filter
 // ============================================================================
 
 function opponentCanTackleOurHolder(board: BoardState, you: Side): boolean {
@@ -654,12 +568,12 @@ function opponentCanTackleOurHolder(board: BoardState, you: Side): boolean {
   if (!holder || holder.side === you || holder.type === 'king') return false
   for (const p of board.pieces) {
     if (p.side !== you || p.type === 'king') continue
-    if (getValidMoves(p, board).some((m) => m.x === holder.pos.x && m.y === holder.pos.y))
-      return true
+    if (getValidMoves(p, board).some((m) => m.x === holder.pos.x && m.y === holder.pos.y)) return true
   }
   return false
 }
 
+/** The opponent's one-extra-move scoring combos: carry-then-shoot, tackle-then-shoot, grab-loose-then-shoot. */
 function opponentThreatAfterOneMove(board: BoardState, you: Side): boolean {
   const holder = board.pieces.find((p) => p.id === board.ball.holderId)
   if (holder && holder.side === you && holder.type !== 'king') {
@@ -671,8 +585,7 @@ function opponentThreatAfterOneMove(board: BoardState, you: Side): boolean {
   if (holder && holder.side !== you) {
     for (const p of board.pieces) {
       if (p.side !== you || p.type === 'king') continue
-      if (!getValidMoves(p, board).some((m) => m.x === holder.pos.x && m.y === holder.pos.y))
-        continue
+      if (!getValidMoves(p, board).some((m) => m.x === holder.pos.x && m.y === holder.pos.y)) continue
       if (immediateGoal(applyMove(board, p.id, holder.pos).boardState, you)) return true
     }
     return false
@@ -701,149 +614,30 @@ function candidateScore(next: BoardState, side: Side, cfg: AIConfig): number {
 }
 
 // ============================================================================
-// Combo search (1-step, 2-step, 3-step)
+// Search
 // ============================================================================
 
-/**
- * Finds a forced goal within 3 AP:
- *   1-step: direct shot
- *   2-step: move→shoot | pass→shoot
- *   3-step: pass→move→shoot | move→pass→shoot
- *
- * The 3-step pass→move→shoot covers the canonical knight goal sequence
- * (pass to knight → knight repositions → knight shoots) that was missing
- * from prior implementations.
- */
-function findScoringCombo(board: BoardState, side: Side): AIAction[] | null {
-  // 1-step
-  const direct = immediateGoal(board, side)
-  if (direct) return [{ type: 'pass', pieceId: direct.pieceId, to: direct.to }]
-  if (board.actionPoints < 2) return null
+interface Candidate { action: AIAction; next: BoardState }
 
-  const holder = board.pieces.find((p) => p.id === board.ball.holderId)
-
-  // 2-step: move→shoot
-  for (const p of board.pieces) {
-    if (p.side !== side || p.hasMovedThisTurn) continue
-    for (const to of getValidMoves(p, board)) {
-      const nb = applyMove(board, p.id, to).boardState
-      if (nb.turn !== side) continue
-      const g = immediateGoal(nb, side)
-      if (g)
-        return [
-          { type: 'move', pieceId: p.id, to },
-          { type: 'pass', pieceId: g.pieceId, to: g.to },
-        ]
-    }
-  }
-
-  // 2-step: pass→shoot
-  if (holder && holder.side === side) {
-    for (const to of getValidPasses(holder, board)) {
-      const r = applyPass(board, to)
-      if (r.goalScored) return [{ type: 'pass', pieceId: holder.id, to }]
-      if (r.forcedTurnEnd || r.boardState.turn !== side) continue
-      const g = immediateGoal(r.boardState, side)
-      if (g)
-        return [
-          { type: 'pass', pieceId: holder.id, to },
-          { type: 'pass', pieceId: g.pieceId, to: g.to },
-        ]
-    }
-  }
-
-  if (board.actionPoints < 3) return null
-
-  // 3-step: pass→move→shoot
-  // Covers the canonical sequence: pass to knight → knight moves to L → knight shoots
-  if (holder && holder.side === side) {
-    for (const passTo of getValidPasses(holder, board)) {
-      const r1 = applyPass(board, passTo)
-      if (r1.goalScored) return [{ type: 'pass', pieceId: holder.id, to: passTo }]
-      if (r1.forcedTurnEnd || r1.boardState.turn !== side) continue
-      const newHolder = r1.boardState.pieces.find(
-        (p) => p.id === r1.boardState.ball.holderId,
-      )
-      if (!newHolder || newHolder.side !== side || newHolder.hasMovedThisTurn) continue
-      for (const moveTo of getValidMoves(newHolder, r1.boardState)) {
-        const r2 = applyMove(r1.boardState, newHolder.id, moveTo)
-        if (r2.boardState.turn !== side) continue
-        const g = immediateGoal(r2.boardState, side)
-        if (g)
-          return [
-            { type: 'pass', pieceId: holder.id, to: passTo },
-            { type: 'move', pieceId: newHolder.id, to: moveTo },
-            { type: 'pass', pieceId: g.pieceId, to: g.to },
-          ]
-      }
-    }
-  }
-
-  // 3-step: move→pass→shoot
-  // Carrier advances, then passes to a teammate who has an immediate shot
-  if (holder && holder.side === side && !holder.hasMovedThisTurn) {
-    for (const moveTo of getValidMoves(holder, board)) {
-      const r1 = applyMove(board, holder.id, moveTo)
-      if (r1.boardState.turn !== side) continue
-      if (r1.boardState.ball.holderId !== holder.id) continue // didn't keep ball
-      const movedHolder = r1.boardState.pieces.find((p) => p.id === holder.id)
-      if (!movedHolder) continue
-      for (const passTo of getValidPasses(movedHolder, r1.boardState)) {
-        const r2 = applyPass(r1.boardState, passTo)
-        if (r2.goalScored)
-          return [
-            { type: 'move', pieceId: holder.id, to: moveTo },
-            { type: 'pass', pieceId: movedHolder.id, to: passTo },
-          ]
-        if (r2.forcedTurnEnd || r2.boardState.turn !== side) continue
-        const g = immediateGoal(r2.boardState, side)
-        if (g)
-          return [
-            { type: 'move', pieceId: holder.id, to: moveTo },
-            { type: 'pass', pieceId: movedHolder.id, to: passTo },
-            { type: 'pass', pieceId: g.pieceId, to: g.to },
-          ]
-      }
-    }
-  }
-
-  return null
-}
-
-// ============================================================================
-// Beam search
-// ============================================================================
-
-interface Candidate {
-  action: AIAction
-  next: BoardState
-}
-
-function candidatesFromBoard(board: BoardState, side: Side): Candidate[] {
+function candidates(board: BoardState, side: Side): Candidate[] {
   const out: Candidate[] = []
   const holder = board.pieces.find((p) => p.id === board.ball.holderId)
   if (holder && holder.side === side) {
     for (const to of getValidPasses(holder, board)) {
-      out.push({
-        action: { type: 'pass', pieceId: holder.id, to },
-        next: applyPass(board, to).boardState,
-      })
+      out.push({ action: { type: 'pass', pieceId: holder.id, to }, next: applyPass(board, to).boardState })
     }
   }
   for (const p of board.pieces) {
     if (p.side !== side || p.hasMovedThisTurn) continue
     for (const to of getValidMoves(p, board)) {
-      out.push({
-        action: { type: 'move', pieceId: p.id, to },
-        next: applyMove(board, p.id, to).boardState,
-      })
+      out.push({ action: { type: 'move', pieceId: p.id, to }, next: applyMove(board, p.id, to).boardState })
     }
   }
   return out
 }
 
 function topCandidates(board: BoardState, side: Side, n: number): Candidate[] {
-  return candidatesFromBoard(board, side)
+  return candidates(board, side)
     .map((c) => ({ c, v: evaluate(c.next, side) }))
     .sort((a, b) => b.v - a.v)
     .slice(0, n)
@@ -855,22 +649,42 @@ function terminalScore(state: BoardState, side: Side, cfg: AIConfig): number {
   return candidateScore(st, side, cfg)
 }
 
-interface Plan {
-  actions: AIAction[]
-  score: number
+/** Hunts a forced goal this turn (direct shot, move→shoot, or pass→shoot). */
+function findScoringCombo(board: BoardState, side: Side): AIAction[] | null {
+  const direct = immediateGoal(board, side)
+  if (direct) return [{ type: 'pass', pieceId: direct.pieceId, to: direct.to }]
+  if (board.actionPoints < 2) return null
+
+  for (const p of board.pieces) {
+    if (p.side !== side || p.hasMovedThisTurn) continue
+    for (const to of getValidMoves(p, board)) {
+      const nb = applyMove(board, p.id, to).boardState
+      if (nb.turn !== side) continue
+      const g = immediateGoal(nb, side)
+      if (g) return [{ type: 'move', pieceId: p.id, to }, { type: 'pass', pieceId: g.pieceId, to: g.to }]
+    }
+  }
+
+  const holder = board.pieces.find((p) => p.id === board.ball.holderId)
+  if (holder && holder.side === side) {
+    for (const to of getValidPasses(holder, board)) {
+      const r = applyPass(board, to)
+      if (r.goalScored) return [{ type: 'pass', pieceId: holder.id, to }]
+      if (r.forcedTurnEnd || r.boardState.turn !== side) continue
+      const g = immediateGoal(r.boardState, side)
+      if (g) return [{ type: 'pass', pieceId: holder.id, to }, { type: 'pass', pieceId: g.pieceId, to: g.to }]
+    }
+  }
+  return null
 }
 
-interface Node {
-  state: BoardState
-  actions: AIAction[]
-  score: number
-}
+interface Plan { actions: AIAction[]; score: number }
+interface Node { state: BoardState; actions: AIAction[]; score: number }
 
+/** Beam search over the whole turn; returns ALL complete plans found (caller samples one). */
 function searchPlans(board: BoardState, side: Side, cfg: AIConfig): Plan[] {
   const apBudget = Math.min(board.actionPoints, cfg.depth)
-  const plans: Plan[] = [
-    { actions: [{ type: 'end_turn' }], score: terminalScore(board, side, cfg) },
-  ]
+  const plans: Plan[] = [{ actions: [{ type: 'end_turn' }], score: terminalScore(board, side, cfg) }]
 
   let frontier: Node[] = [{ state: board, actions: [], score: 0 }]
   for (let depth = 0; depth < apBudget; depth++) {
@@ -880,10 +694,7 @@ function searchPlans(board: BoardState, side: Side, cfg: AIConfig): Plan[] {
       const goal = immediateGoal(node.state, side)
       if (goal) {
         const r = applyPass(node.state, goal.to)
-        const actions: AIAction[] = [
-          ...node.actions,
-          { type: 'pass', pieceId: goal.pieceId, to: goal.to },
-        ]
+        const actions: AIAction[] = [...node.actions, { type: 'pass', pieceId: goal.pieceId, to: goal.to }]
         plans.push({ actions, score: terminalScore(r.boardState, side, cfg) })
         continue
       }
@@ -894,17 +705,14 @@ function searchPlans(board: BoardState, side: Side, cfg: AIConfig): Plan[] {
         next.push({ state: c.next, actions, score })
       }
     }
-    frontier = next
-      .filter((n) => n.state.turn === side)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, cfg.beamWidth)
+    frontier = next.filter((n) => n.state.turn === side).sort((a, b) => b.score - a.score).slice(0, cfg.beamWidth)
     if (frontier.length === 0) break
   }
   return plans
 }
 
 // ============================================================================
-// Seeded RNG + softmax selection
+// Seeded RNG + softmax selection (non-determinism with judgment)
 // ============================================================================
 
 function mulberry32(seed: number): () => number {
@@ -930,6 +738,7 @@ function boardHash(board: BoardState): number {
   return h >>> 0
 }
 
+/** Softmax-sample a plan by score with temperature; ties broken at random. */
 function selectPlan(plans: Plan[], cfg: AIConfig, rng: () => number): Plan {
   if (plans.length === 1) return plans[0]
   const maxScore = Math.max(...plans.map((p) => p.score))
@@ -947,36 +756,31 @@ function selectPlan(plans: Plan[], cfg: AIConfig, rng: () => number): Plan {
   return plans[plans.length - 1]
 }
 
-// Per-instance nonce: ensures the same position resolves differently across sessions.
-const INSTANCE_SEED =
-  ((Date.now() >>> 0) ^ (Math.floor(Math.random() * 0xffffffff) >>> 0)) >>> 0
+// A per-instance nonce keeps play fresh across sessions; combined per-turn with the
+// board hash and a move counter it stays board-derived (no wall-clock in the per-turn
+// decision logic). Same position no longer resolves the same way every game.
+const INSTANCE_SEED = ((Date.now() >>> 0) ^ (Math.floor(Math.random() * 0xffffffff) >>> 0)) >>> 0
 let moveCounter = 0
 
 // ============================================================================
-// Player export
+// Player
 // ============================================================================
 
 export const aiPlayer: AIPlayerScript = {
-  name: 'Claude Sonnet 4.6',
+  name: 'Claude Opus',
   description:
-    'Búsqueda completa del turno con combos de gol en 3 pasos y evaluación de caballos mejorada; defiende anticipando el mover-y-chutar rival y varía su juego en cada partida.',
-  avatar: '⚡',
+    'Busca el turno completo con evaluación posicional y combos de gol forzado; defiende anticipando el mover-y-chutar rival y elige con temperatura baja para ser fuerte sin volverse previsible.',
+  avatar: '🦉',
   difficulty: 'expert',
-  badgeName: 'Domador del Sonnet',
-  badgeIcon: 'zap',
-
+  badgeName: 'Verdugo de Opus',
+  badgeIcon: 'crown',
   play: (boardState: BoardState, aiSide: Side): AIAction[] => {
     try {
-      const rng = mulberry32(
-        (boardHash(boardState) ^ INSTANCE_SEED ^ (moveCounter++ * 0x85ebca6b)) >>> 0,
-      )
-
-      // Explicit combo search before full beam (fast path for forced goals)
+      const rng = mulberry32((boardHash(boardState) ^ INSTANCE_SEED ^ (moveCounter++ * 0x85ebca6b)) >>> 0)
       if (CFG.combos) {
         const combo = findScoringCombo(boardState, aiSide)
         if (combo) return combo
       }
-
       const plans = searchPlans(boardState, aiSide, CFG)
       if (plans.length === 0) return [{ type: 'end_turn' }]
       const actions = selectPlan(plans, CFG, rng).actions
