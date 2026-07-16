@@ -1,4 +1,5 @@
-import { BoardState, Side, AIAction, AIPlayerScript, Position, Piece } from '../types/game';
+import { BoardState, Side, Position, Piece } from '../types/game';
+import { AIAction, AIPlayerScript } from '../types/ai-player';
 
 // ============================================================================
 // Funciones Auxiliares de Utilidad y Tablero
@@ -17,7 +18,7 @@ function hashBoard(boardState: BoardState): number {
   if (boardState.ball.holderId) {
     hash += boardState.ball.holderId.length * 7;
   }
-  hash += boardState.actionPoints * 1003 + boardState.turn * 57;
+  hash += boardState.actionPoints * 1003 + (boardState.turn === 'white' ? 1 : 2) * 57;
   hash += boardState.score.white * 10007 + boardState.score.black * 40009;
   return Math.abs(hash) | 0;
 }
@@ -55,7 +56,9 @@ function cloneBoardState(boardState: BoardState): BoardState {
     maxActionPoints: boardState.maxActionPoints,
     turn: boardState.turn,
     keeperBlockedId: boardState.keeperBlockedId,
-    lastMove: boardState.lastMove ? { ...boardState.lastMove } : undefined
+    lastMove: boardState.lastMove ? { ...boardState.lastMove } : undefined,
+    moveHistory: boardState.moveHistory,
+    turnNumber: boardState.turnNumber
   };
 }
 
@@ -420,7 +423,7 @@ function simulateAction(boardState: BoardState, action: AIAction, aiSide: Side):
       if (dispPos) rivalPiece.pos = dispPos;
       nextState.ball.holderId = piece.id;
       nextState.ball.pos = { x: to.x, y: to.y };
-      nextState.keeperBlockedId = null;
+      nextState.keeperBlockedId = undefined;
     } else {
       // Movimiento o conducción ordinaria
       if (nextState.ball.holderId === piece.id) {
