@@ -9,18 +9,17 @@
  *
  * Usage:
  *   npm run simulate -- <scriptIdWhite> <scriptIdBlack> [games] [maxTurnsPerGame]
- *   npm run simulate -- claude-tactico chatgpt-tactico 20
+ *   npm run simulate -- engine-champ-r16 engine-champ-qf 20
  *   npm run simulate -- --all 10        # round-robin between all registered scripts
  */
-import { getAIScript } from '../src/ai-players/registry'
+import { getScript, REGISTERED_IDS } from './registry'
 import { getValidMoves, getValidPasses } from '../src/game-logic'
 import { applyMove, applyPass, applyEndTurn } from '../src/game-engine'
 import { getInitialBoardState } from '../src/initial-board'
-import { AIPlayerScript } from '../src/types/ai-player'
+import { BotScript } from '../src/types/bot'
 import { BoardState, Side } from '../src/types/game'
 
-const REGISTERED = ['claude-tactico', 'chatgpt-tactico', 'gemini-tikitaka', 'claude-fable', 'claude-opus',
-    'engine-beginner', 'engine-intermediate', 'engine-advanced', 'engine-expert', 'engine-legendary']
+const REGISTERED = REGISTERED_IDS
 
 // ─────────────────────────────────────────────────────────
 // Per-side stats
@@ -54,7 +53,7 @@ function emptyStats(): SideStats {
 // Turn executor (faithful to the app's training/turn route)
 // ─────────────────────────────────────────────────────────
 
-function playTurn(state: BoardState, script: AIPlayerScript, aiSide: Side, stats: SideStats): { state: BoardState; goalBy: Side | null } {
+function playTurn(state: BoardState, script: BotScript, aiSide: Side, stats: SideStats): { state: BoardState; goalBy: Side | null } {
     stats.turns++
     let actions
     try {
@@ -145,8 +144,8 @@ interface MatchResult {
 }
 
 function playMatch(
-    whiteScript: AIPlayerScript,
-    blackScript: AIPlayerScript,
+    whiteScript: BotScript,
+    blackScript: BotScript,
     statsBySide: Record<Side, SideStats>,
     maxTurns: number,
 ): MatchResult {
@@ -191,8 +190,8 @@ function printStats(label: string, s: SideStats) {
 }
 
 function runPairing(idA: string, idB: string, games: number, maxTurns: number) {
-    const scriptA = getAIScript(idA)
-    const scriptB = getAIScript(idB)
+    const scriptA = getScript(idA)
+    const scriptB = getScript(idB)
     if (!scriptA || !scriptB) {
         console.error(`Script no registrado: ${!scriptA ? idA : idB}. Registrados: ${REGISTERED.join(', ')}`)
         process.exit(1)

@@ -1,12 +1,12 @@
-// Production AI engine for Chess.Football.
+// Production bot engine for Chess.Football.
 //
 // One search+eval core parameterised into difficulty tiers; exports a full
-// championship roster of AIPlayerScript-compatible opponents ready for use in
-// futbolajedrez / crazygames without any additional dependencies.
+// championship roster of BotScript-compatible opponents ready for use in
+// the webapp / crazygames SPA without any additional dependencies.
 //
-// Architecture (validated over 8 self-play iterations — see scripts/self-play/NOTES.md):
+// Architecture (validated over 8 self-play iterations):
 //   • EVALUATION FUNCTION: goal diff, possession, ball advancement, shooting lanes,
-//     king safety, loose-ball race, defensive positioning. (§6 of AI_AUTHORING_PROMPT)
+//     king safety, loose-ball race, defensive positioning.
 //   • BEAM SEARCH over the whole AP budget finds multi-step combos the old greedy
 //     scripts never saw.
 //   • findScoringCombo explicitly hunts forced goals the beam tends to prune.
@@ -17,7 +17,7 @@
 import { getValidMoves, getValidPasses } from './game-logic'
 import { applyMove, applyPass, applyEndTurn } from './game-engine'
 import type { BoardState, Piece, Position, Side } from './types/game'
-import type { AIAction, AIPlayerScript } from './types/ai-player'
+import type { BotAction, BotScript } from './types/bot'
 
 const BOARD_W = 9
 const BOARD_H = 12
@@ -29,7 +29,7 @@ const cheby = (a: { x: number; y: number }, b: { x: number; y: number }) =>
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 /** Search + randomness knobs. Tune to create a difficulty tier. */
-export interface AIConfig {
+export interface BotConfig {
   /** How many candidate plans the beam keeps per depth (tactical breadth). */
   beamWidth: number
   /** Max AP planned ahead in a single turn (≤5). Lower = more myopic. */
@@ -70,7 +70,7 @@ export interface EvalBias {
 
 /**
  * Difficulty presets. Each tier reliably beats the one below it.
- * (Validated via scripts/self-play/ladder.ts — see NOTES.md iter 8.)
+ * (Validated via scripts/self-play/ladder.ts.)
  */
 export const TIERS = {
   beginner:     { beamWidth: 2,  depth: 2, combos: false, defense: 0, temperature: 220, mistakeProb: 0.35, lookahead: 0, lookaheadWidth: 0 },
@@ -87,7 +87,7 @@ export const TIERS = {
   // out). lookaheadWidth 2 on purpose: a wider deep-veto budget (3–4) adds caution that
   // COSTS tempo and play strength (measured 50% vs 60% against the SF tune at lkw 2).
   legendary:    { beamWidth: 14, depth: 5, combos: true,  defense: 2, temperature: 2,   mistakeProb: 0, lookahead: 2, lookaheadWidth: 2 },
-} as const satisfies Record<string, AIConfig>
+} as const satisfies Record<string, BotConfig>
 
 export type TierName = keyof typeof TIERS
 
@@ -148,8 +148,8 @@ const RAY_DIRS: ReadonlyArray<readonly [number, number]> = [
  * piece met decides: an enemy with a clear line is a live shot (it only needs the
  * ball); an empty lane to the board edge is a square an enemy can move onto and fire
  * down; a friendly piece screens the lane. This is what lets the engine keep the king
- * shielded instead of leaving the back-rank cross-shot wide open (the lane Fable walks
- * the ball up a flank to exploit).
+ * shielded instead of leaving the back-rank cross-shot wide open (the lane an attacker
+ * walks the ball up a flank to exploit).
  */
 function kingExposure(board: BoardState, kingSide: Side): number {
   const king = board.pieces.find((p) => p.type === 'king' && p.side === kingSide)
@@ -363,7 +363,7 @@ function opponentCanGrabLoose(board: BoardState, you: Side): boolean {
   return false
 }
 
-function candidateScore(next: BoardState, side: Side, cfg: AIConfig, bias: EvalBias): number {
+function candidateScore(next: BoardState, side: Side, cfg: BotConfig, bias: EvalBias): number {
   const you = opp(side)
   let v = evaluate(next, side, bias)
   if (cfg.defense >= 1 && next.turn === you) {
@@ -387,7 +387,7 @@ function candidateScore(next: BoardState, side: Side, cfg: AIConfig, bias: EvalB
 
 // ── Search ────────────────────────────────────────────────────────────────────
 
-interface Candidate { action: AIAction; next: BoardState }
+interface Candidate { action: BotAction; next: BoardState }
 
 function candidates(board: BoardState, side: Side): Candidate[] {
   const out: Candidate[] = []
@@ -414,7 +414,7 @@ function topCandidates(board: BoardState, side: Side, n: number, bias: EvalBias)
     .map((x) => x.c)
 }
 
-function findScoringCombo(board: BoardState, side: Side): AIAction[] | null {
+function findScoringCombo(board: BoardState, side: Side): BotAction[] | null {
   // 1-step: direct shot
   const direct = immediateGoal(board, side)
   if (direct) return [{ type: 'pass', pieceId: direct.pieceId, to: direct.to }]
@@ -475,8 +475,8 @@ const GOAL_VALUE = 100000
 
 // `after` = board state once this whole turn is played out (opponent to move), so the
 // adversarial layer can recurse into the opponent's reply. `scored` = this turn scores.
-interface Plan { actions: AIAction[]; score: number; after: BoardState; scored: boolean }
-interface Node  { state: BoardState; actions: AIAction[]; score: number }
+interface Plan { actions: BotAction[]; score: number; after: BoardState; scored: boolean }
+interface Node  { state: BoardState; actions: BotAction[]; score: number }
 
 /**
  * Order-insensitive fingerprint of a search state. Two action sequences that land on
@@ -492,7 +492,7 @@ function stateKey(s: BoardState): string {
   return `${k}#${s.ball.pos.x},${s.ball.pos.y},${s.ball.holderId ?? '-'}#${s.actionPoints}`
 }
 
-function searchPlans(board: BoardState, side: Side, cfg: AIConfig, bias: EvalBias): Plan[] {
+function searchPlans(board: BoardState, side: Side, cfg: BotConfig, bias: EvalBias): Plan[] {
   const apBudget = Math.min(board.actionPoints, cfg.depth)
   const endState = applyEndTurn(board)
   // Deduped by outcome: permutations of one move-set collapse to the best-scored copy.
@@ -512,12 +512,12 @@ function searchPlans(board: BoardState, side: Side, cfg: AIConfig, bias: EvalBia
       const goal = immediateGoal(node.state, side)
       if (goal) {
         const r = applyPass(node.state, goal.to)
-        const actions: AIAction[] = [...node.actions, { type: 'pass', pieceId: goal.pieceId, to: goal.to }]
+        const actions: BotAction[] = [...node.actions, { type: 'pass', pieceId: goal.pieceId, to: goal.to }]
         addPlan({ actions, score: GOAL_VALUE, after: r.boardState, scored: true })
         continue
       }
       for (const c of topCandidates(node.state, side, cfg.beamWidth, bias)) {
-        const actions: AIAction[] = [...node.actions, c.action]
+        const actions: BotAction[] = [...node.actions, c.action]
         const after = c.next.turn === side ? applyEndTurn(c.next) : c.next
         // Tiny bonus per AP used so a useful longer plan breaks ties over end_turn —
         // kept small so the engine won't shuffle pieces into danger just to spend AP.
@@ -543,19 +543,19 @@ function searchPlans(board: BoardState, side: Side, cfg: AIConfig, bias: EvalBia
 // stronger — the static eval already drives strong attacking play, and a shallow
 // minimax discounts any attack whose payoff lies past the search horizon, so the
 // engine turns passive and stops scoring (measured: it dropped from 20–0 to 0–10 vs
-// Fable). So the offense stays 100 % static; lookahead is used *only* additively, to
+// the legacy baseline). So the offense stays 100 % static; lookahead is used *only* additively, to
 // veto plans that let the opponent set up a forced goal the 1-move blunder filter
 // can't see (e.g. a 2–3 AP carry/pass/reposition-then-shoot, or — for the top tier —
 // a 2-turn forced goal we can't defend). This strictly demotes blunders; it never
 // dampens offense.
 
 /** Cheap config for the opponent/defence sub-search (narrow beam, no blunder filter). */
-function defenceCfg(cfg: AIConfig): AIConfig {
+function defenceCfg(cfg: BotConfig): BotConfig {
   return { ...cfg, beamWidth: Math.min(cfg.beamWidth, 4), defense: 0, lookahead: 0 }
 }
 
 /** Top-N turn-plans for `side` by static eval, with their resulting states. */
-function rankedPlans(board: BoardState, side: Side, cfg: AIConfig, bias: EvalBias, n: number): Plan[] {
+function rankedPlans(board: BoardState, side: Side, cfg: BotConfig, bias: EvalBias, n: number): Plan[] {
   return searchPlans(board, side, cfg, bias).sort((a, b) => b.score - a.score).slice(0, n)
 }
 
@@ -566,7 +566,7 @@ function rankedPlans(board: BoardState, side: Side, cfg: AIConfig, bias: EvalBia
  * turn after which EVERY one of our replies still leaves it forcing in `turns-1`.
  */
 function attackerForcesGoal(
-  state: BoardState, attacker: Side, cfg: AIConfig, bias: EvalBias, turns: number,
+  state: BoardState, attacker: Side, cfg: BotConfig, bias: EvalBias, turns: number,
 ): boolean {
   if (findScoringCombo(state, attacker)) return true
   if (turns <= 1) return false
@@ -594,7 +594,7 @@ function attackerForcesGoal(
  * mode where, under an unstoppable threat, the veto demoted all its copies of one plan
  * and the engine scattered pieces offensively while conceding.
  */
-function searchPlansDefended(board: BoardState, side: Side, cfg: AIConfig, bias: EvalBias): Plan[] {
+function searchPlansDefended(board: BoardState, side: Side, cfg: BotConfig, bias: EvalBias): Plan[] {
   const plans = searchPlans(board, side, cfg, bias)
   const lookahead = cfg.lookahead ?? 0
   if (lookahead < 1 || plans.length <= 1) return plans
@@ -603,7 +603,7 @@ function searchPlansDefended(board: BoardState, side: Side, cfg: AIConfig, bias:
   const ranked = plans.sort((a, b) => b.score - a.score)
   // Examine top plans, STOPPING once kSafe safe ones exist, and return the FULL list.
   // Deliberately leaky: softmax tail-picks can land on unexamined plans. Full hard-veto
-  // coverage was tried and is strictly WORSE (expert fell to 30–45% vs Fable, conceding
+  // coverage was tried and is strictly WORSE (expert fell to 30–45% vs the baseline, conceding
   // MORE): with every aggressive plan demoted the engine turtles, and passivity hands
   // the opponent free tempo to build the 2-turn combos a lookahead-1 tier can't see.
   // Tempo > caution in this game — same lesson as the Iter-11 negamax failure.
@@ -657,7 +657,7 @@ function boardHash(board: BoardState): number {
   return h >>> 0
 }
 
-function selectPlan(plans: Plan[], cfg: AIConfig, rng: () => number): Plan {
+function selectPlan(plans: Plan[], cfg: BotConfig, rng: () => number): Plan {
   if (plans.length === 1) return plans[0]
   const maxScore = Math.max(...plans.map((p) => p.score))
   if (cfg.mistakeProb > 0 && rng() < cfg.mistakeProb) return plans[Math.floor(rng() * plans.length)]
@@ -674,18 +674,18 @@ function selectPlan(plans: Plan[], cfg: AIConfig, rng: () => number): Plan {
 
 // ── Internal play closure ─────────────────────────────────────────────────────
 
-function buildPlay(cfg: AIConfig, bias: EvalBias, seed: number): (board: BoardState, aiSide: Side) => AIAction[] {
+function buildPlay(cfg: BotConfig, bias: EvalBias, seed: number): (board: BoardState, botSide: Side) => BotAction[] {
   let moveCounter = 0
-  return (board, aiSide) => {
+  return (board, botSide) => {
     try {
       const rng = mulberry32((boardHash(board) ^ seed ^ (moveCounter++ * 0x85ebca6b)) >>> 0)
       if (cfg.combos) {
-        const combo = findScoringCombo(board, aiSide)
+        const combo = findScoringCombo(board, botSide)
         if (combo && !(cfg.mistakeProb > 0 && rng() < cfg.mistakeProb)) return combo
       }
       const plans = (cfg.lookahead ?? 0) >= 1
-        ? searchPlansDefended(board, aiSide, cfg, bias)
-        : searchPlans(board, aiSide, cfg, bias)
+        ? searchPlansDefended(board, botSide, cfg, bias)
+        : searchPlans(board, botSide, cfg, bias)
       if (plans.length === 0) return [{ type: 'end_turn' }]
       const chosen = selectPlan(plans, cfg, rng).actions
       return chosen.length > 0 ? chosen : [{ type: 'end_turn' }]
@@ -697,8 +697,8 @@ function buildPlay(cfg: AIConfig, bias: EvalBias, seed: number): (board: BoardSt
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** Identity and display metadata for a championship AI opponent. */
-export interface AIPersona {
+/** Identity and display metadata for a championship bot opponent. */
+export interface BotPersona {
   /** Unique string identifier used by apps to route to the right opponent. */
   id: string
   name: string
@@ -706,38 +706,38 @@ export interface AIPersona {
   /** Emoji avatar shown in the UI. */
   avatar: string
   difficulty: 'beginner' | 'intermediate' | 'advanced' | 'expert' | 'legendary'
-  /** Trophy name awarded to a player who defeats this AI. */
+  /** Trophy name awarded to a player who defeats this bot. */
   badgeName: string
   /** Lucide icon name for the badge. */
   badgeIcon: string
 }
 
-/** A full AIPlayerScript with an additional `id` field for routing. */
-export interface ChampionAI extends AIPlayerScript {
+/** A full BotScript with an additional `id` field for routing (AD-6 identity). */
+export interface ChampionBot extends BotScript {
   id: string
 }
 
 /**
- * Build a championship AI from a persona + optional config and eval-bias overrides.
+ * Build a championship bot from a persona + optional config and eval-bias overrides.
  *
  * `seed` pins the RNG stream (pass a fixed value for reproducible tests;
  * omit for a fresh, non-deterministic session — the default uses Date.now() XOR random).
  *
  * @example
  * // Ready-to-use opponent at intermediate difficulty:
- * const bot = createChampionAI({ id: 'my-bot', name: 'My Bot', avatar: '🤖',
+ * const bot = createChampionBot({ id: 'my-bot', name: 'My Bot', avatar: '🤖',
  *   difficulty: 'intermediate', description: '...', badgeName: '...', badgeIcon: 'star' })
  *
  * // Expert-level with aggressive shooting bias:
- * const boss = createChampionAI(myPersona, { temperature: 5 }, { shooting: 20 })
+ * const boss = createChampionBot(myPersona, { temperature: 5 }, { shooting: 20 })
  */
-export function createChampionAI(
-  persona: AIPersona,
-  configOverride: Partial<AIConfig> = {},
+export function createChampionBot(
+  persona: BotPersona,
+  configOverride: Partial<BotConfig> = {},
   evalBias: EvalBias = {},
   seed = ((Date.now() >>> 0) ^ (Math.floor(Math.random() * 0xffffffff) >>> 0)) >>> 0,
-): ChampionAI {
-  const cfg: AIConfig = { ...TIERS[persona.difficulty as TierName], ...configOverride }
+): ChampionBot {
+  const cfg: BotConfig = { ...TIERS[persona.difficulty as TierName], ...configOverride }
   return {
     id:          persona.id,
     name:        persona.name,
@@ -752,16 +752,16 @@ export function createChampionAI(
 
 /**
  * Low-level factory for fully custom configs.
- * Prefer `createChampionAI` for production opponents.
+ * Prefer `createChampionBot` for production opponents.
  * Used by the self-play training scripts.
  */
-export function createAI(
+export function createBot(
   id: string,
   name: string,
-  config: AIConfig,
+  config: BotConfig,
   evalBias: EvalBias = {},
   seed = 0x9e3779b9,
-): ChampionAI {
+): ChampionBot {
   const difficulty: TierName =
     (config.lookahead ?? 0) >= 2 ? 'legendary'
     : (config.lookahead ?? 0) >= 1 ? 'expert'
@@ -779,9 +779,9 @@ export function createAI(
   }
 }
 
-/** Convenience wrapper: build a tier AI by name with an optional fixed seed. */
-export const makeTier = (tier: TierName, seed?: number): ChampionAI =>
-  createAI(tier, tier[0].toUpperCase() + tier.slice(1), TIERS[tier], {}, seed)
+/** Convenience wrapper: build a tier bot by name with an optional fixed seed. */
+export const makeTier = (tier: TierName, seed?: number): ChampionBot =>
+  createBot(tier, tier[0].toUpperCase() + tier.slice(1), TIERS[tier], {}, seed)
 
 /**
  * Internal functions exposed for the self-play diagnosis scripts ONLY
@@ -795,58 +795,62 @@ export const __internals = {
 // ── Championship roster ───────────────────────────────────────────────────────
 
 /**
- * Four championship opponents in ascending difficulty. The FLOOR is calibrated to the
- * hand-written `claude_fable_AI_player.ts` script — i.e. even the easiest championship
- * rival already plays at "Fable level" (competitive: attacks, defends, the occasional
- * basic slip), never the old 5-year-old beginner/intermediate tiers. Every rival is at
- * least as strong as that Fable script; each beats the one below it.
+ * Four championship opponents in ascending difficulty. The FLOOR was calibrated to the
+ * strongest legacy hand-written baseline script (removed in the bot-identity purge) —
+ * i.e. even the easiest championship rival plays a competitive game (attacks, defends,
+ * the occasional basic slip), never the old beginner/intermediate tiers. Each rung
+ * beats the one below it.
  *
- * Strength ladder (benchmarked vs the hand-written `claude-fable`, 12–20×130 @5AP, and
- * head-to-head — see scripts/self-play/NOTES.md "Iter 12"):
- *   • R16  chatgpt-tactico  expert (pure, no bias)   ≈ Fable (8W 4D 8L, 50%) ← the FLOOR
- *   • QF   gemini-tikitaka  expert+ (beam 12)        90% vs R16 (never loses), 96% vs Fable
- *   • SF   claude-tactico   legendary-grade          70% vs QF (lookahead-2 boss defence)
- *   • Final claude-fable    legendary (plain)        sweeps Fable 12–0, 100% vs expert,
- *                                                    60% vs SF (top rungs are close by
- *                                                    nature: two lookahead-2 tunes mirror
- *                                                    each other and saturate ~55–60%)
+ * Strength ladder (benchmarked vs that legacy baseline, 12–20×130 @5AP, and
+ * head-to-head; historical iteration log lived in the removed self-play notes):
+ *   • R16  striker-direct       expert (pure, no bias)   ≈ baseline (8W 4D 8L, 50%) ← the FLOOR
+ *   • QF   midfield-possession  expert+ (beam 12)        90% vs R16 (never loses), 96% vs baseline
+ *   • SF   defender-positional  legendary-grade          70% vs QF (lookahead-2 boss defence)
+ *   • Final champion-boss       legendary (plain)        swept the baseline 12–0, 100% vs expert,
+ *                                                        60% vs SF (top rungs are close by
+ *                                                        nature: two lookahead-2 tunes mirror
+ *                                                        each other and saturate ~55–60%)
  *
- * vs-Fable win-rate saturates above the floor, so the upper rungs are spread on the
- * proven strength axes — beam width and `lookahead` — and validated tier-vs-tier.
- * Post-dedupe (Iter 12) the softmax operates over DISTINCT plans, so temperature is a
- * real randomness knob now: raising it above ~3 measurably weakens a tier, and eval
- * biases perturb the tuned weights hard (both were re-calibrated; the mid rungs keep a
+ * Baseline win-rate saturates above the floor, so the upper rungs are spread on the
+ * proven strength axes — beam width and `lookahead` — and validated tier-vs-tier
+ * (`engine-*` entries in scripts/registry.ts reproduce each rung for regression runs).
+ * Post-dedupe the softmax operates over DISTINCT plans, so temperature is a real
+ * randomness knob: raising it above ~3 measurably weakens a tier, and eval biases
+ * perturb the tuned weights hard (both were re-calibrated; the mid rungs keep a
  * small possession bias as flavour, the floor and the boss run unbiased). Beam width is
  * the dominant strength axis (beam-10 lookahead-2 LOSES 0–10 to beam-12 lookahead-1).
  *
- * Apps walk this array as a bracket, or call `createChampionAI` for a custom roster.
+ * Apps walk this array as a bracket, or call `createChampionBot` for a custom roster.
  * For a deliberately easy/practice bot use `makeTier('beginner' | 'intermediate' |
  * 'advanced')` — those tiers still exist, they are just no longer part of the championship.
+ *
+ * IDENTITY CONTRACT (AD-6): these `id` values are the canonical bot identities across
+ * the whole product — apps must never mint their own. They are persisted (Supabase
+ * `script_id`, tournament localStorage, public URL slugs), so they are STABLE FOREVER.
  */
-export const CHAMPIONSHIP_ROSTER: readonly ChampionAI[] = [
-  // 1 — Floor (Round of 16): the MINIMUM championship level = Fable's level. Pure
-  // `expert` tier, NO eval bias: post-dedupe the beam follows the eval faithfully and
-  // even a mild aggressive bias (shooting +15) drops it well below the floor (50% →
-  // 21–31% vs Fable). Its temp-3 play is already direct and shoot-first (ChatGPT persona).
-  createChampionAI(
+export const CHAMPIONSHIP_ROSTER: readonly ChampionBot[] = [
+  // 1 — Floor (Round of 16): the MINIMUM championship level. Pure `expert` tier, NO
+  // eval bias: post-dedupe the beam follows the eval faithfully and even a mild
+  // aggressive bias (shooting +15) drops it well below the floor (50% → 21–31% vs the
+  // legacy baseline). Its temp-3 play is already direct and shoot-first.
+  createChampionBot(
     {
-      id:          'chatgpt-tactico',
-      name:        'ChatGPT Táctico',
+      id:          'striker-direct',
+      name:        'Ariete',
       description: 'Agresivo y directo. Busca el gol antes que la posesión.',
       avatar:      '⚡',
       difficulty:  'expert',
-      badgeName:   'Vencedor del Táctico',
+      badgeName:   'Vencedor del Ariete',
       badgeIcon:   'zap',
     },
   ),
 
   // 2 — Quarterfinal: "expert+" — wider beam than the floor (still lookahead 1).
-  // 90% vs the floor (8W 2D 0L, never loses) and 96% vs the hand-written Fable.
-  // Patient, possession style (Gemini persona).
-  createChampionAI(
+  // 90% vs the floor (8W 2D 0L, never loses). Patient, possession style.
+  createChampionBot(
     {
-      id:          'gemini-tikitaka',
-      name:        'Gemini TikiTaka',
+      id:          'midfield-possession',
+      name:        'Tikitaka',
       description: 'Paciente y posesivo. Construye el juego con pases cortos y triangulaciones.',
       avatar:      '🌊',
       difficulty:  'expert',
@@ -858,12 +862,11 @@ export const CHAMPIONSHIP_ROSTER: readonly ChampionAI[] = [
   ),
 
   // 3 — Semifinal: boss-grade defence — the 2-turn forced-goal veto (lookahead 2), with
-  // a slightly narrower beam/veto than the final boss. 70% vs the QF tune. Positional
-  // (Claude Sonnet persona).
-  createChampionAI(
+  // a slightly narrower beam/veto than the final boss. 70% vs the QF tune. Positional.
+  createChampionBot(
     {
-      id:          'claude-tactico',
-      name:        'Claude Táctico',
+      id:          'defender-positional',
+      name:        'Estratega',
       description: 'Posicional y metódico. Controla el centro y espera el momento exacto.',
       avatar:      '🔷',
       difficulty:  'legendary',
@@ -875,18 +878,39 @@ export const CHAMPIONSHIP_ROSTER: readonly ChampionAI[] = [
   ),
 
   // 4 — Final (boss): plain `legendary` — widest beam, full 2-turn veto, temp 2.
-  // Post-dedupe the softmax spreads over DISTINCT plans, so the old temperature-5
-  // override now WEAKENS it (measured: lost 4-6 vs the SF tune); the board-seeded RNG
-  // still varies its play. Sweeps the hand-written Fable. (Claude Fable persona.)
-  createChampionAI(
+  // Post-dedupe the softmax spreads over DISTINCT plans, so a temperature-5 override
+  // WEAKENS it (measured: lost 4-6 vs the SF tune); the board-seeded RNG still varies
+  // its play.
+  createChampionBot(
     {
-      id:          'claude-fable',
-      name:        'Claude Fable',
+      id:          'champion-boss',
+      name:        'Campeón',
       description: 'El campeón. Juega cerca de lo óptimo con un toque imprevisible.',
       avatar:      '🦉',
       difficulty:  'legendary',
-      badgeName:   'Verdugo de Fable',
+      badgeName:   'Verdugo del Campeón',
       badgeIcon:   'crown',
     },
   ),
 ]
+
+// ── Legacy id migration map ───────────────────────────────────────────────────
+
+/**
+ * Canonical migration map from the pre-purge bot ids to the stable roster ids above.
+ * The old ids leaked into persisted state everywhere (webapp Supabase `ai_players`
+ * seeds + `script_id` rows, SPA tournament localStorage, public URL slugs), so apps
+ * MUST migrate through this single map (AD-6/AD-12) instead of minting their own —
+ * if two apps invented different replacements, cross-surface progress would desync.
+ *
+ * Keys cover both the old CHAMPIONSHIP_ROSTER ids and the ids of the removed legacy
+ * hand-written script registry (whose 'claude-opus' entry, an expert-strength script
+ * comparable to the championship floor, maps to the floor bot).
+ */
+export const LEGACY_BOT_ID_MAP: Readonly<Record<string, string>> = {
+  'chatgpt-tactico': 'striker-direct',
+  'gemini-tikitaka': 'midfield-possession',
+  'claude-tactico':  'defender-positional',
+  'claude-fable':    'champion-boss',
+  'claude-opus':     'striker-direct',
+}

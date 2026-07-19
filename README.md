@@ -121,26 +121,26 @@ interface BoardState {
 }
 ```
 
-#### `AIAction`
+#### `BotAction`
 ```ts
-interface AIAction {
+interface BotAction {
   type: 'move' | 'pass' | 'end_turn'
   pieceId?: string  // Required for 'move' and 'pass'
   to?: Position     // Required for 'move' and 'pass'
 }
 ```
 
-#### `AIPlayerScript`
+#### `BotScript`
 ```ts
-interface AIPlayerScript {
+interface BotScript {
   name: string
   description: string
   avatar: string                                          // Emoji identifier
-  difficulty: 'beginner' | 'intermediate' | 'advanced' | 'expert'
-  badgeName: string                                       // Trophy awarded to the player who beats this AI
+  difficulty: 'beginner' | 'intermediate' | 'advanced' | 'expert' | 'legendary'
+  badgeName: string                                       // Trophy awarded to the player who beats this bot
   badgeIcon: string                                       // Lucide icon name for the badge
-  play: (boardState: BoardState, aiSide: Side) => AIAction[]
-  // Pure function. Called once per AI turn. Returns up to 5 actions (one per AP).
+  play: (boardState: BoardState, botSide: Side) => BotAction[]
+  // Pure function. Called once per bot turn. Returns up to 5 actions (one per AP).
 }
 ```
 
@@ -332,31 +332,48 @@ Maps each `PieceType` to an i18n key for use in UI translation dictionaries.
 
 ---
 
-### AI opponents
+### Bot opponents
 
 ```ts
-import { getAIScript } from '@scriptonita/chess-football-engine'
+import {
+  CHAMPIONSHIP_ROSTER, LEGACY_BOT_ID_MAP,
+  makeTier, createChampionBot, TIERS,
+} from '@scriptonita/chess-football-engine'
 ```
 
-#### `getAIScript(scriptId)`
+The bot engine is the **only** source of machine opponents (one search+eval core,
+parameterised into difficulty tiers). Every bot carries a canonical identity —
+`id`, `name`, `description`, `avatar`, `difficulty`, `badgeName`, `badgeIcon` —
+owned by this package: apps must never mint their own bot ids.
+
+#### `CHAMPIONSHIP_ROSTER`
+
+Four championship bots in ascending difficulty, with **stable ids**:
+
+| `id` | Name | Style | Difficulty |
+|---|---|---|---|
+| `'striker-direct'` | Ariete | Aggressive, direct | expert |
+| `'midfield-possession'` | Tikitaka | Patient, possession | expert |
+| `'defender-positional'` | Estratega | Positional, methodical | legendary |
+| `'champion-boss'` | Campeón | The boss | legendary |
+
+#### `makeTier(tier, seed?)`
+
+Builds a practice bot at any difficulty (`'beginner' | 'intermediate' | 'advanced' |
+'expert' | 'legendary'`). Pass a fixed seed for reproducible play.
+
+#### `LEGACY_BOT_ID_MAP`
+
+Migration map from pre-0.6.0 bot ids to the stable roster ids above. Apps that
+persisted old ids (database rows, localStorage, URL slugs) must migrate through
+this map — never by minting their own replacements.
+
+The `play` method on every bot is **pure and synchronous** — no network calls, no
+hidden state; randomness comes from a seeded RNG.
 
 ```ts
-function getAIScript(scriptId: string): AIPlayerScript | null
-```
-
-Returns the `AIPlayerScript` for the given ID, or `null` if not found.
-
-| `scriptId` | Name | Difficulty |
-|---|---|---|
-| `'claude-tactico'` | Claude Sonnet | advanced |
-| `'chatgpt-tactico'` | Táctico Neural | advanced |
-| `'gemini-tikitaka'` | TikiTaka_AI | advanced |
-
-The `play` method on each script is a **pure, synchronous** function — no network calls, no randomness.
-
-```ts
-const ai = getAIScript('claude-tactico')!
-const actions: AIAction[] = ai.play(boardState, 'black')
+const bot = CHAMPIONSHIP_ROSTER[0]
+const actions: BotAction[] = bot.play(boardState, 'black')
 
 for (const action of actions) {
   if (action.type === 'move')     boardState = applyMove(boardState, action.pieceId!, action.to!).boardState
@@ -378,7 +395,7 @@ import {
   applyEndTurn,
   checkGoal,
   squareName,
-  getAIScript,
+  makeTier,
 } from '@scriptonita/chess-football-engine'
 
 // boardState is provided by each game client (the initial state lives there, not here)
@@ -401,9 +418,9 @@ if (afterMove.ball.holderId === 'white_queen') {
 // 4. End the turn manually
 const nextTurn = applyEndTurn(boardState)
 
-// 5. Run an AI turn
-const ai = getAIScript('gemini-tikitaka')!
-const actions = ai.play(boardState, 'black')
+// 5. Run a bot turn
+const bot = makeTier('advanced')
+const actions = bot.play(boardState, 'black')
 ```
 
 ## What's NOT included

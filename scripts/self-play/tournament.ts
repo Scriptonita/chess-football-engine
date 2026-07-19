@@ -20,10 +20,10 @@ const maxAP = argNum('--ap', 5)
 
 const scripts = [...ALL_SCRIPTS]
 const shortName: Record<string, string> = {
-  'claude-tactico': 'Claude-S',
-  'chatgpt-tactico': 'ChatGPT',
-  'gemini-tikitaka': 'Gemini',
-  'claude-fable': 'Claude-F',
+  'engine-champ-r16': 'R16',
+  'engine-champ-qf': 'QF',
+  'engine-champ-sf': 'SF',
+  'engine-champ-final': 'Final',
 }
 
 // Accumulators

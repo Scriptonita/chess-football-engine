@@ -14,19 +14,19 @@
 import { getValidMoves, getValidPasses, checkGoal } from '../../src/game-logic'
 import { applyMove, applyPass, applyEndTurn } from '../../src/game-engine'
 import { getInitialBoardState } from '../../src/initial-board'
-import { getAIScript } from '../../src/ai-players/registry'
+import { getScript } from '../registry'
 import type { BoardState, Side } from '../../src/types/game'
-import type { AIAction } from '../../src/types/ai-player'
+import type { BotAction } from '../../src/types/bot'
 
 const opp = (s: Side): Side => (s === 'white' ? 'black' : 'white')
 
 /** Either a registered engine script id, or an inline prototype (e.g. our strong AI). */
-export type Player = string | { id: string; play: (b: BoardState, side: Side) => AIAction[] }
+export type Player = string | { id: string; play: (b: BoardState, side: Side) => BotAction[] }
 
-type Resolved = { id: string; play: (b: BoardState, side: Side) => AIAction[] }
+type Resolved = { id: string; play: (b: BoardState, side: Side) => BotAction[] }
 function resolvePlayer(p: Player): Resolved {
   if (typeof p === 'string') {
-    const s = getAIScript(p)
+    const s = getScript(p)
     return { id: p, play: s ? s.play : () => [{ type: 'end_turn' }] }
   }
   return p
@@ -201,4 +201,4 @@ export function runMatch(white: Player, black: Player, opts: MatchOptions = {}):
   return { white: playerOf.white.id, black: playerOf.black.id, score, winner, turns: turnCount, metrics: m }
 }
 
-export const ALL_SCRIPTS = ['claude-tactico', 'chatgpt-tactico', 'gemini-tikitaka', 'claude-fable', 'claude-opus'] as const
+export const ALL_SCRIPTS = ['engine-champ-r16', 'engine-champ-qf', 'engine-champ-sf', 'engine-champ-final'] as const

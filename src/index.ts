@@ -7,7 +7,7 @@
 
 // Types
 export * from './types/game'
-export * from './types/ai-player'
+export * from './types/bot'
 
 // Rules / movement logic
 export * from './game-logic'
@@ -21,8 +21,6 @@ export * from './initial-board'
 // Board notation
 export * from './notation'
 
-// AI opponents (pure deterministic scripts) + registry
-export * from './ai-players/registry'
-
-// Configurable AI engine: difficulty tiers, championship roster, factory functions
-export * from './ai-engine'
+// Configurable bot engine: difficulty tiers, championship roster, factory
+// functions, and the legacy-id migration map
+export * from './bot-engine'

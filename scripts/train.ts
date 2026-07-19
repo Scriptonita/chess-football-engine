@@ -14,15 +14,14 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { getAIScript } from '../src/ai-players/registry'
+import { getScript, REGISTERED_IDS } from './registry'
 import { getValidMoves, getValidPasses, isInOwnArea } from '../src/game-logic'
 import { applyMove, applyPass, applyEndTurn } from '../src/game-engine'
 import { getInitialBoardState } from '../src/initial-board'
-import { AIAction, AIPlayerScript } from '../src/types/ai-player'
+import { BotAction, BotScript } from '../src/types/bot'
 import { BoardState, Piece, Position, Side } from '../src/types/game'
 
-const REGISTERED = ['claude-tactico', 'chatgpt-tactico', 'gemini-tikitaka', 'claude-fable', 'claude-opus',
-    'engine-beginner', 'engine-intermediate', 'engine-advanced', 'engine-expert', 'engine-legendary']
+const REGISTERED = REGISTERED_IDS
 
 // ─────────────────────────────────────────────────────────
 // Board oracles (ground truth about what was possible)
@@ -176,7 +175,7 @@ function matchesMovePattern(piece: Piece, to: Position): boolean {
     }
 }
 
-function classifyInvalidMove(state: BoardState, action: AIAction, aiSide: Side): string {
+function classifyInvalidMove(state: BoardState, action: BotAction, aiSide: Side): string {
     const piece = state.pieces.find(p => p.id === action.pieceId)
     if (!piece) return 'pieceId inexistente (¿ID reconstruido desde la posición actual?)'
     if (piece.side !== aiSide) return 'la pieza es del rival'
@@ -195,7 +194,7 @@ function classifyInvalidMove(state: BoardState, action: AIAction, aiSide: Side):
     return 'otro motivo'
 }
 
-function classifyInvalidPass(state: BoardState, action: AIAction, aiSide: Side): string {
+function classifyInvalidPass(state: BoardState, action: BotAction, aiSide: Side): string {
     const piece = state.pieces.find(p => p.id === action.pieceId)
     if (!piece) return 'pieceId inexistente (¿ID reconstruido desde la posición actual?)'
     if (piece.side !== aiSide) return 'la pieza es del rival'
@@ -274,7 +273,7 @@ interface TurnContext { game: number; turn: number }
 
 function playTurn(
     state: BoardState,
-    script: AIPlayerScript,
+    script: BotScript,
     aiSide: Side,
     stats: TrainStats,
     ctx: TurnContext,
@@ -289,7 +288,7 @@ function playTurn(
     const oracleTackle = findTackle(state, aiSide)
     const oracleLooseBall = canCaptureLooseBall(state, aiSide)
 
-    let actions: AIAction[]
+    let actions: BotAction[]
     try {
         actions = script.play(structuredClone(state), aiSide)
         if (!Array.isArray(actions)) throw new Error('play() did not return an array')
@@ -396,8 +395,8 @@ function playTurn(
 // ─────────────────────────────────────────────────────────
 
 function playMatch(
-    whiteScript: AIPlayerScript,
-    blackScript: AIPlayerScript,
+    whiteScript: BotScript,
+    blackScript: BotScript,
     statsBySide: Record<Side, TrainStats>,
     maxTurns: number,
     game: number,
@@ -469,8 +468,8 @@ function printStats(label: string, s: TrainStats) {
 }
 
 function runPairing(idA: string, idB: string, games: number, maxTurns: number) {
-    const scriptA = getAIScript(idA)
-    const scriptB = getAIScript(idB)
+    const scriptA = getScript(idA)
+    const scriptB = getScript(idB)
     if (!scriptA || !scriptB) {
         console.error(`Script no registrado: ${!scriptA ? idA : idB}. Registrados: ${REGISTERED.join(', ')}`)
         process.exit(1)
