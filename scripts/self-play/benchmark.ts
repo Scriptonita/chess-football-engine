@@ -1,7 +1,7 @@
 // Validates the EXPERT tier against the four engine scripts, home + away.
 //   npx tsx scripts/self-play/benchmark.ts
 import { runMatch, ALL_SCRIPTS } from './harness.ts'
-import { makeTier } from './ai-engine.ts'
+import { makeTier } from './bot-engine.ts'
 
 const strongAI = makeTier('expert', 0) // fixed seed → reproducible benchmark
 const maxGoals = 3, maxAP = 5, turnCap = 200

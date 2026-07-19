@@ -6,12 +6,12 @@
  * Usage:
  *   npx tsx scripts/bench.ts <engineId> [games] [maxTurns] [ap] [opp1,opp2,...]
  *   npx tsx scripts/bench.ts engine-expert 20 200 5
- *   npx tsx scripts/bench.ts engine-expert 20 200 3 claude-fable,claude-opus
+ *   npx tsx scripts/bench.ts engine-expert 20 200 3 engine-champ-sf,engine-champ-final
  */
-import { getAIScript } from '../src/ai-players/registry'
+import { getScript } from './registry'
 import { getValidMoves, getValidPasses } from '../src/game-logic'
 import { applyMove, applyPass, applyEndTurn } from '../src/game-engine'
-import { AIPlayerScript } from '../src/types/ai-player'
+import { BotScript } from '../src/types/bot'
 import { BoardState, Piece, PieceType, Side } from '../src/types/game'
 
 function initial(servingSide: Side, score = { white: 0, black: 0 }, ap = 5): BoardState {
@@ -32,7 +32,7 @@ function initial(servingSide: Side, score = { white: 0, black: 0 }, ap = 5): Boa
 
 const other = (s: Side): Side => (s === 'white' ? 'black' : 'white')
 
-function playTurn(state: BoardState, script: AIPlayerScript, side: Side): { state: BoardState; goalBy: Side | null } {
+function playTurn(state: BoardState, script: BotScript, side: Side): { state: BoardState; goalBy: Side | null } {
     let actions
     try { actions = script.play(structuredClone(state), side); if (!Array.isArray(actions)) throw 0 } catch { actions = [{ type: 'end_turn' as const }] }
     let goalBy: Side | null = null
@@ -55,7 +55,7 @@ function playTurn(state: BoardState, script: AIPlayerScript, side: Side): { stat
     return { state, goalBy }
 }
 
-function playMatch(w: AIPlayerScript, b: AIPlayerScript, maxTurns: number, ap: number): { white: number; black: number } {
+function playMatch(w: BotScript, b: BotScript, maxTurns: number, ap: number): { white: number; black: number } {
     let state = initial('white', { white: 0, black: 0 }, ap)
     for (let t = 0; t < maxTurns; t++) {
         const side = state.turn
@@ -72,15 +72,15 @@ const engineId = process.argv[2] ?? 'engine-expert'
 const games = Number(process.argv[3] ?? 20)
 const maxTurns = Number(process.argv[4] ?? 200)
 const ap = Number(process.argv[5] ?? 5)
-const opps = (process.argv[6] ?? 'claude-fable,claude-opus,gemini-tikitaka,chatgpt-tactico,claude-tactico').split(',')
+const opps = (process.argv[6] ?? 'engine-champ-r16,engine-champ-qf,engine-champ-sf,engine-champ-final').split(',')
 
-const engine = getAIScript(engineId)!
+const engine = getScript(engineId)!
 if (!engine) { console.error(`unknown engine ${engineId}`); process.exit(1) }
 
 console.log(`\n### ${engineId} — ${games} games × ${maxTurns} turns @ ${ap} AP\n`)
 let totW = 0, totL = 0, totD = 0
 for (const oppId of opps) {
-    const opp = getAIScript(oppId)
+    const opp = getScript(oppId)
     if (!opp) { console.log(`  ${oppId}: NOT REGISTERED`); continue }
     let W = 0, D = 0, L = 0, gf = 0, ga = 0
     for (let g = 0; g < games; g++) {

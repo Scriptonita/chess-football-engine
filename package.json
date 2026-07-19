@@ -1,6 +1,6 @@
 {
   "name": "@scriptonita/chess-football-engine",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Canonical code implementation of the Chess.Football rules engine. Pure and framework-agnostic.",
   "type": "module",
   "license": "MIT",
@@ -35,7 +35,7 @@
     "selfplay:bench": "tsx scripts/self-play/benchmark.ts",
     "selfplay:ladder": "tsx scripts/self-play/ladder.ts",
     "selfplay:tournament": "tsx scripts/self-play/tournament.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm test && npm run build"
   },
   "devDependencies": {
     "tsup": "^8.5.0",

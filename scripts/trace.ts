@@ -3,11 +3,11 @@
  * concrete blunders an AI makes. Usage:
  *   npx tsx scripts/trace.ts <whiteId> <blackId> [maxTurns] [fromTurn] [toTurn]
  */
-import { getAIScript } from '../src/ai-players/registry'
+import { getScript } from './registry'
 import { getValidMoves, getValidPasses } from '../src/game-logic'
 import { applyMove, applyPass, applyEndTurn } from '../src/game-engine'
 import { getInitialBoardState as initial } from '../src/initial-board'
-import { AIPlayerScript } from '../src/types/ai-player'
+import { BotScript } from '../src/types/bot'
 import { BoardState, Side } from '../src/types/game'
 
 const other = (s: Side): Side => (s === 'white' ? 'black' : 'white')
@@ -41,11 +41,11 @@ function looseGrabbable(state: BoardState, side: Side): boolean {
     return false
 }
 
-const [wId, bId] = [process.argv[2] ?? 'engine-expert', process.argv[3] ?? 'claude-fable']
+const [wId, bId] = [process.argv[2] ?? 'engine-expert', process.argv[3] ?? 'engine-champ-final']
 const maxTurns = Number(process.argv[4] ?? 60)
 const fromT = Number(process.argv[5] ?? 1)
 const toT = Number(process.argv[6] ?? maxTurns)
-const scripts: Record<Side, AIPlayerScript> = { white: getAIScript(wId)!, black: getAIScript(bId)! }
+const scripts: Record<Side, BotScript> = { white: getScript(wId)!, black: getScript(bId)! }
 
 let state = initial('white')
 for (let turn = 1; turn <= maxTurns; turn++) {

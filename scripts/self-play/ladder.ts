@@ -6,7 +6,7 @@
 // several games with different seeds, alternating colours, and we report win rates.
 
 import { runMatch, ALL_SCRIPTS, type Player } from './harness.ts'
-import { makeTier, TIERS } from './ai-engine.ts'
+import { makeTier, TIERS } from './bot-engine.ts'
 
 const argv = process.argv.slice(2)
 const games = (() => { const i = argv.indexOf('--games'); return i >= 0 ? Number(argv[i + 1]) : 8 })()
@@ -52,7 +52,7 @@ for (const a of tiers) {
 // ── Tiers vs the existing engine scripts ──
 console.log('\n  Tier vs engine scripts  (win% / draws / losses for the tier)\n')
 process.stdout.write('  ' + pad('', 13))
-for (const s of ALL_SCRIPTS) process.stdout.write(pad(s.replace('-tactico', '').replace('-tikitaka', ''), 13))
+for (const s of ALL_SCRIPTS) process.stdout.write(pad(s.replace('engine-champ-', ''), 13))
 process.stdout.write('\n')
 for (const a of tiers) {
   process.stdout.write('  ' + pad(a, 13))
