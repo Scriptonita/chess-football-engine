@@ -389,13 +389,8 @@ hidden state; randomness comes from a seeded RNG.
 
 ```ts
 const bot = CHAMPIONSHIP_ROSTER[0]
-const actions: BotAction[] = bot.play(boardState, 'black')
-
-for (const action of actions) {
-  if (action.type === 'move')     boardState = applyMove(boardState, action.pieceId!, action.to!).boardState
-  if (action.type === 'pass')     boardState = applyPass(boardState, action.to!).boardState
-  if (action.type === 'end_turn') boardState = applyEndTurn(boardState)
-}
+const { states, goalScored } = playBotTurn(bot, boardState, 'black')
+boardState = states[states.length - 1]
 ```
 
 ---
