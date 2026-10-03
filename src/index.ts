@@ -24,3 +24,6 @@ export * from './notation'
 // Configurable bot engine: difficulty tiers, championship roster, factory
 // functions, and the legacy-id migration map
 export * from './bot-engine'
+
+// Bot turn expansion: a bot's action plan → the board states of its turn
+export * from './bot-turn'
