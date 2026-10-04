@@ -336,8 +336,8 @@ Maps each `PieceType` to an i18n key for use in UI translation dictionaries.
 
 ```ts
 import {
-  CHAMPIONSHIP_ROSTER, LEGACY_BOT_ID_MAP,
-  makeTier, createChampionBot, TIERS,
+  CHAMPIONSHIP_ROSTER, STARTER_BOT, getBotById, LEGACY_BOT_ID_MAP,
+  makeTier, createChampionBot, TIERS, playBotTurn,
 } from '@scriptonita/chess-football-engine'
 ```
 
@@ -357,6 +357,22 @@ Four championship bots in ascending difficulty, with **stable ids**:
 | `'defender-positional'` | Estratega | Positional, methodical | legendary |
 | `'champion-boss'` | Campeón | The boss | legendary |
 
+#### `STARTER_BOT`
+
+The opponent for a player's first match: `'starter-rookie'` (Canterano), plain
+`beginner` tier. It is **not** part of `CHAMPIONSHIP_ROSTER`, but its id is just as
+canonical and stable. `getBotById(id)` resolves the starter bot or any roster bot
+(`null` when unknown).
+
+#### `playBotTurn(bot, board, side)`
+
+Runs one bot turn and returns `{ states, closedByEndTurn, goalScored }`: the board
+after each applied action. Illegal actions are dropped (`applyMove` / `applyPass` do
+not validate), the turn is cut on a goal or a forced turn end, and it is ended if it
+is still the bot's once the plan runs out. `closedByEndTurn` tells a replay that the
+last state is a bare end-of-turn with nothing to show. Apps replay `states`; they
+never apply bot actions themselves.
+
 #### `makeTier(tier, seed?)`
 
 Builds a practice bot at any difficulty (`'beginner' | 'intermediate' | 'advanced' |
@@ -373,13 +389,8 @@ hidden state; randomness comes from a seeded RNG.
 
 ```ts
 const bot = CHAMPIONSHIP_ROSTER[0]
-const actions: BotAction[] = bot.play(boardState, 'black')
-
-for (const action of actions) {
-  if (action.type === 'move')     boardState = applyMove(boardState, action.pieceId!, action.to!).boardState
-  if (action.type === 'pass')     boardState = applyPass(boardState, action.to!).boardState
-  if (action.type === 'end_turn') boardState = applyEndTurn(boardState)
-}
+const { states, goalScored } = playBotTurn(bot, boardState, 'black')
+boardState = states[states.length - 1]
 ```
 
 ---

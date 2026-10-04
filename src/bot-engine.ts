@@ -894,6 +894,32 @@ export const CHAMPIONSHIP_ROSTER: readonly ChampionBot[] = [
   ),
 ]
 
+// ── Starter bot ───────────────────────────────────────────────────────────────
+
+/**
+ * The opponent for a player's very first match: plain `beginner` tier (myopic, no
+ * goal combos, no defence, frequent slips), so the rules can be learnt by winning.
+ * Deliberately NOT part of `CHAMPIONSHIP_ROSTER` — the championship floor stays at
+ * `expert` — but its identity is canonical for the same reason (AD-6): apps persist
+ * and route by this `id`, so it is STABLE FOREVER and must never be minted app-side.
+ */
+export const STARTER_BOT: ChampionBot = createChampionBot({
+  id:          'starter-rookie',
+  name:        'Canterano',
+  description: 'Recién salido de la cantera. Juega sencillo y se equivoca a menudo: el rival ideal para tu primer partido.',
+  avatar:      '🌱',
+  difficulty:  'beginner',
+  badgeName:   'Primer Triunfo',
+  badgeIcon:   'sprout',
+})
+
+/** Resolves any canonical bot id (championship roster or starter bot); null if unknown. */
+export function getBotById(id: string | null | undefined): ChampionBot | null {
+  if (!id) return null
+  if (id === STARTER_BOT.id) return STARTER_BOT
+  return CHAMPIONSHIP_ROSTER.find((bot) => bot.id === id) ?? null
+}
+
 // ── Legacy id migration map ───────────────────────────────────────────────────
 
 /**
