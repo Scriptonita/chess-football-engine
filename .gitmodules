@@ -1,0 +1,4 @@
+[submodule "agents"]
+	path = agents
+	url = https://github.com/Scriptonita/agents-shared.git
+	branch = main
